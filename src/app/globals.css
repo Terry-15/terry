@@ -1,0 +1,84 @@
+@import "tailwindcss";
+
+@theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+:root {
+  --fond: #f6f7f9;
+  --surface: #ffffff;
+  --texte: #18181b;
+  --bordure: #e4e4e7;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fond: #09090b;
+    --surface: #131316;
+    --texte: #ededed;
+    --bordure: #27272a;
+  }
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--fond);
+  color: var(--texte);
+  -webkit-font-smoothing: antialiased;
+}
+
+@layer components {
+  .carte {
+    @apply rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
+  }
+
+  .titre-section {
+    @apply text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100;
+  }
+
+  .etiquette {
+    @apply inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap;
+  }
+
+  .champ {
+    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900
+      placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none
+      dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600;
+  }
+
+  .libelle-champ {
+    @apply mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400;
+  }
+
+  .bouton {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm
+      font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .bouton-primaire {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2
+      text-sm font-medium text-white transition-colors hover:bg-indigo-500
+      disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  .bouton-secondaire {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-zinc-300
+      bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50
+      disabled:cursor-not-allowed disabled:opacity-60
+      dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800;
+  }
+
+  .bouton-discret {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm
+      font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800
+      dark:hover:bg-zinc-800 dark:hover:text-zinc-100;
+  }
+
+  .lien {
+    @apply text-indigo-600 hover:underline dark:text-indigo-400;
+  }
+}
