@@ -2,9 +2,9 @@ import { LIBELLES_ATTRIBUT, type CleAttribut } from "@/moteur/types";
 
 /** Radar des attributs : six à huit axes, lisible d'un coup d'œil. */
 export function Radar({ cles, valeurs, couleur = "var(--accent)" }: { cles: readonly CleAttribut[]; valeurs: number[]; couleur?: string }) {
-  const cx = 130;
-  const cy = 118;
-  const r = 76;
+  const cx = 152;
+  const cy = 116;
+  const r = 72;
   const n = valeurs.length;
   const angle = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / n;
   const point = (i: number, v: number): [number, number] => [
@@ -14,7 +14,7 @@ export function Radar({ cles, valeurs, couleur = "var(--accent)" }: { cles: read
   const enChaine = (vs: number[]) => vs.map((v, i) => point(i, v).map((x) => x.toFixed(1)).join(",")).join(" ");
 
   return (
-    <svg viewBox="0 0 260 236" className="w-full max-w-[260px]" role="img" aria-label="Radar des attributs">
+    <svg viewBox="0 0 304 232" className="w-full max-w-[300px]" role="img" aria-label="Radar des attributs">
       {[0.33, 0.66, 1].map((part) => (
         <polygon
           key={part}
@@ -30,7 +30,7 @@ export function Radar({ cles, valeurs, couleur = "var(--accent)" }: { cles: read
       })}
       <polygon points={enChaine(valeurs)} fill={couleur} fillOpacity="0.26" stroke={couleur} strokeWidth="2" />
       {cles.map((cle, i) => {
-        const [x, y] = point(i, 24.5);
+        const [x, y] = point(i, 24);
         const ancre = Math.abs(x - cx) < 6 ? "middle" : x > cx ? "start" : "end";
         return (
           <text

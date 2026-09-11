@@ -51,9 +51,10 @@
   --color-bon: var(--bon);
   --color-moyen: var(--moyen);
   --color-mauvais: var(--mauvais);
-  --font-titre: "Chakra Petch", "Arial Narrow", ui-sans-serif, sans-serif;
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
+  /* Polices locales uniquement : le jeu doit s'afficher sans réseau. */
+  --font-titre: "Chakra Petch", "Oswald", "Arial Narrow", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
 }
 
 html {
