@@ -1,5 +1,5 @@
 import { creerMonde, indexer, type IndexMonde } from "../moteur/monde";
-import { simulerMatch } from "../moteur/match/moteur";
+import { creerMatch, simulerMatch, type EtatMatch } from "../moteur/match/moteur";
 import {
   classement,
   creerSaison,
@@ -9,7 +9,7 @@ import {
   type Rencontre,
   type Saison,
 } from "../moteur/saison";
-import type { FeuilleMatch, Monde } from "../moteur/types";
+import type { Camp, FeuilleMatch, Monde } from "../moteur/types";
 import { tactiqueIA } from "./ia";
 import { simulerAvecAdjoints } from "./pilote";
 
@@ -63,18 +63,9 @@ export function nouvellePartie(clubId: string, manager: string, graine = Date.no
   };
 }
 
-/**
- * Joue la journée en cours : le match du club du joueur est commenté minute
- * par minute, les autres passent par le même moteur sur les mêmes effectifs —
- * aucun score inventé.
- */
-export function jouerProchaineJournee(partie: Partie, idx: IndexMonde): MatchJoue | null {
-  if (partie.saison.terminee) return null;
-  const numero = partie.saison.journeeCourante;
-  const rencontres = partie.saison.calendrier[numero] ?? [];
-
-  // Les clubs IA choisissent leur tactique en fonction de l'adversaire du jour.
-  for (const r of rencontres) {
+/** Fixe la tactique des clubs non contrôlés pour la journée à venir. */
+function preparerJournee(partie: Partie, idx: IndexMonde, numero: number) {
+  for (const r of partie.saison.calendrier[numero] ?? []) {
     for (const [clubId, adversaireId] of [
       [r.domicileId, r.exterieurId],
       [r.exterieurId, r.domicileId],
@@ -84,16 +75,83 @@ export function jouerProchaineJournee(partie: Partie, idx: IndexMonde): MatchJou
       if (club) club.tactique = tactiqueIA(partie.monde, idx, clubId, adversaireId, numero);
     }
   }
+}
 
-  const mienne = rencontres.find((r) => r.domicileId === partie.clubId || r.exterieurId === partie.clubId);
-  let feuilleJoueur: FeuilleMatch | undefined;
-  if (mienne) {
-    feuilleJoueur = simulerMatch(
+export type MatchEnCours = {
+  etat: EtatMatch;
+  journee: number;
+  domicile: boolean;
+  adversaireId: string;
+  /** Le camp que le joueur dirige depuis son banc. */
+  monCamp: Camp;
+};
+
+/**
+ * Ouvre le match du club dirigé, sans le jouer : c'est l'appelant qui fait
+ * avancer l'horloge, et qui peut l'arrêter pour changer un joueur ou poser un
+ * temps mort.
+ */
+export function ouvrirMatch(partie: Partie, idx: IndexMonde): MatchEnCours | null {
+  if (partie.saison.terminee) return null;
+  const numero = partie.saison.journeeCourante;
+  preparerJournee(partie, idx, numero);
+  const mienne = (partie.saison.calendrier[numero] ?? []).find(
+    (r) => r.domicileId === partie.clubId || r.exterieurId === partie.clubId,
+  );
+  if (!mienne) return null;
+  const domicile = mienne.domicileId === partie.clubId;
+  return {
+    etat: creerMatch(
       entreeEquipe(partie.monde, idx, mienne.domicileId),
       entreeEquipe(partie.monde, idx, mienne.exterieurId),
-      { graine: grainePourMatch(partie, numero, mienne), commentaire: true },
-    );
-  }
+      {
+        graine: grainePourMatch(partie, numero, mienne),
+        commentaire: true,
+        pilote: domicile ? "domicile" : "exterieur",
+      },
+    ),
+    journee: numero,
+    domicile,
+    adversaireId: domicile ? mienne.exterieurId : mienne.domicileId,
+    monCamp: domicile ? "domicile" : "exterieur",
+  };
+}
+
+/**
+ * Clôt la journée une fois le match du joueur terminé : les autres rencontres
+ * passent par le même moteur, sur les mêmes effectifs, bancs tenus par les
+ * adjoints.
+ */
+export function cloturerJournee(partie: Partie, idx: IndexMonde, match: MatchEnCours, feuille: FeuilleMatch) {
+  jouerJourneeSaison(partie.monde, partie.saison, idx, {
+    commentairePour: partie.clubId,
+    feuilleFournie: feuille,
+    simuler: simulerAvecAdjoints,
+  });
+  partie.dernierMatchVu = false;
+  partie.dernierMatch = {
+    journee: match.journee,
+    feuille,
+    domicile: match.domicile,
+    adversaireId: match.adversaireId,
+  };
+}
+
+/** Journée jouée sans intervention : le banc est confié à l'adjoint. */
+export function jouerJourneeSansMoi(partie: Partie, idx: IndexMonde): MatchJoue | null {
+  if (partie.saison.terminee) return null;
+  const numero = partie.saison.journeeCourante;
+  preparerJournee(partie, idx, numero);
+  const mienne = (partie.saison.calendrier[numero] ?? []).find(
+    (r) => r.domicileId === partie.clubId || r.exterieurId === partie.clubId,
+  );
+  const feuilleJoueur = mienne
+    ? simulerAvecAdjoints(
+        entreeEquipe(partie.monde, idx, mienne.domicileId),
+        entreeEquipe(partie.monde, idx, mienne.exterieurId),
+        { graine: grainePourMatch(partie, numero, mienne), commentaire: true },
+      )
+    : undefined;
 
   jouerJourneeSaison(partie.monde, partie.saison, idx, {
     commentairePour: partie.clubId,
@@ -102,17 +160,15 @@ export function jouerProchaineJournee(partie: Partie, idx: IndexMonde): MatchJou
   });
 
   partie.dernierMatchVu = false;
-  if (mienne && feuilleJoueur) {
-    const domicile = mienne.domicileId === partie.clubId;
-    partie.dernierMatch = {
-      journee: numero,
-      feuille: feuilleJoueur,
-      domicile,
-      adversaireId: domicile ? mienne.exterieurId : mienne.domicileId,
-    };
-  } else {
-    partie.dernierMatch = null;
-  }
+  partie.dernierMatch =
+    mienne && feuilleJoueur
+      ? {
+          journee: numero,
+          feuille: feuilleJoueur,
+          domicile: mienne.domicileId === partie.clubId,
+          adversaireId: mienne.domicileId === partie.clubId ? mienne.exterieurId : mienne.domicileId,
+        }
+      : null;
   return partie.dernierMatch;
 }
 
