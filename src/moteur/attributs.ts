@@ -80,7 +80,11 @@ export function malusPoste(j: Joueur, poste: Poste): number {
  * d'un match à l'autre — le reste, ce sont ses attributs.
  */
 export function facteurEtat(condition: number, forme: number, moral: number): number {
-  const fatigue = condition >= 65 ? 1 : 1 - ((65 - condition) / 65) * 0.26;
+  // La fatigue ne se contente pas de gratter quelques pourcents : un joueur
+  // cuit rate des tirs qu'il met les yeux fermés en début de match. C'est ce
+  // qui fait du banc une décision et non une formalité.
+  const manque = Math.max(0, 75 - condition) / 75;
+  const fatigue = 1 - Math.pow(manque, 1.3) * 0.45;
   const f = 1 + forme * 0.018;
   const m = 1 + (moral - 55) / 100 * 0.05;
   return borner(fatigue * f * m, 0.6, 1.18);

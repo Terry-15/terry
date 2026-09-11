@@ -1,6 +1,6 @@
 import { borner, creerAleatoire, grainePour, melanger } from "./aleatoire";
 import { disponibles, meilleurSept, type IndexMonde } from "./monde";
-import { simulerMatch, type EntreeEquipe } from "./match/moteur";
+import { simulerMatch, type EntreeEquipe, type OptionsMatch } from "./match/moteur";
 import type { FeuilleMatch, Joueur, Monde, StatsJoueurMatch, Tactique } from "./types";
 
 /* --------------------------------------------------------------- calendrier */
@@ -93,6 +93,11 @@ export type OptionsJournee = {
   commentairePour?: string;
   /** Feuille déjà jouée (match du joueur simulé à part, avec ses décisions). */
   feuilleFournie?: FeuilleMatch;
+  /**
+   * Simulateur de rechange, pour confier les bancs des clubs non contrôlés à
+   * un adjoint. Par défaut, le moteur joue le match sans intervention.
+   */
+  simuler?: (domicile: EntreeEquipe, exterieur: EntreeEquipe, options: OptionsMatch) => FeuilleMatch;
 };
 
 export function entreeEquipe(monde: Monde, idx: IndexMonde, clubId: string, tactique?: Tactique): EntreeEquipe {
@@ -122,10 +127,11 @@ export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, opti
 
   rencontres.forEach((r, i) => {
     const concerne = options.commentairePour === r.domicileId || options.commentairePour === r.exterieurId;
+    const jouer = options.simuler ?? simulerMatch;
     const feuille =
       concerne && options.feuilleFournie
         ? options.feuilleFournie
-        : simulerMatch(entreeEquipe(monde, idx, r.domicileId), entreeEquipe(monde, idx, r.exterieurId), {
+        : jouer(entreeEquipe(monde, idx, r.domicileId), entreeEquipe(monde, idx, r.exterieurId), {
             graine: grainePour(saison.graine, numero, i, r.domicileId),
             commentaire: concerne,
           });
@@ -204,7 +210,7 @@ function appliquerApresMatch(
     const ligne = parJoueur.get(j.id);
     const minutes = (ligne?.secondes ?? 0) / 60;
     if (minutes > 0) {
-      j.condition = borner(j.condition - minutes * 0.75 + 22, 25, 100);
+      j.condition = borner(j.condition - minutes * 0.5 + 26, 25, 100);
       const risque = 0.006 + Math.max(0, 60 - j.condition) * 0.0006;
       if (alea.chance(risque)) {
         j.blessureJours = alea.entier(1, 6);

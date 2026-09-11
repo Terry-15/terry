@@ -33,7 +33,7 @@ const PLAN_EFFECTIF: Poste[] = [
 ];
 
 /** Bonus de niveau selon le rang au poste : titulaire, doublure, troisième. */
-const BONUS_RANG = [1.5, -0.4, -1.9];
+const BONUS_RANG = [1.2, -0.2, -1.5];
 
 /** Profil d'attributs dominants par poste, en points ajoutés à la base. */
 const PROFILS: Record<Poste, Partial<Record<CleAttribut, number>>> = {
@@ -192,15 +192,30 @@ export function salaireAttendu(noteJoueur: number, age: number, reputation: numb
   return Math.round((base * facteurAge * facteurClub) / 50) * 50;
 }
 
-/** Tactique par défaut d'un club : le sept est rempli plus tard. */
+/** Tactique par défaut d'un club, avant que son effectif soit connu. */
 export function tactiqueParDefaut(): Tactique {
   return {
-    systeme: "6-0",
+    systeme: "5-1",
     tempo: "equilibre",
     rotation: "equilibre",
     gardienVolant: false,
     sept: { GB: "", ArG: "", ArD: "", AiG: "", AiD: "", DC: "", PV: "" },
   };
+}
+
+/**
+ * Le système maison d'un club, déduit de son effectif : des gabarits qui
+ * bloquent défendent bas, des joueurs agressifs qui interceptent défendent
+ * haut. Sans cela, les 42 clubs défendraient tous pareil et la moitié des
+ * décisions tactiques du joueur n'auraient aucun sens.
+ */
+export function penchantDefensif(effectif: Joueur[]): number {
+  const champ = effectif.filter((j) => j.poste !== "GB");
+  if (!champ.length) return 0;
+  const moyenne = (cle: CleAttribut) => champ.reduce((s, j) => s + j.attributs[cle], 0) / champ.length;
+  const bas = moyenne("defense") * 0.5 + moyenne("blocage") * 0.5;
+  const haut = moyenne("interception") * 0.5 + moyenne("agressivite") * 0.5;
+  return haut - bas;
 }
 
 function creerNommeur(alea: Aleatoire) {
@@ -269,7 +284,17 @@ export function creerMonde(graine: number, saison = 2026): Monde {
   }
 
   const monde: Monde = { version: VERSION_MONDE, graine, saison, divisions, clubs, joueurs };
-  for (const club of monde.clubs) club.tactique.sept = septAutomatique(monde, club.id);
+  // Le système maison se décide par comparaison : le tiers le plus agressif
+  // défend haut, le tiers le plus massif défend bas. Un championnat où tout le
+  // monde défend pareil viderait de son sens la moitié des choix du joueur.
+  const penchants = monde.clubs
+    .map((club) => ({ club, ecart: penchantDefensif(monde.joueurs.filter((j) => j.clubId === club.id)) }))
+    .sort((a, b) => b.ecart - a.ecart);
+  penchants.forEach(({ club }, rang) => {
+    const part = rang / penchants.length;
+    club.tactique.systeme = part < 0.3 ? "3-2-1" : part < 0.7 ? "5-1" : "6-0";
+    club.tactique.sept = meilleurSept(monde.joueurs.filter((j) => j.clubId === club.id));
+  });
   return monde;
 }
 

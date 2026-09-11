@@ -10,6 +10,8 @@ import type { ConsigneRotation, PosteChamp, SystemeDefensif, Tempo, TypeTir } fr
 
 export const DUREE_MATCH = 3600; // secondes
 export const DUREE_MI_TEMPS = 1800;
+/** En dessous, il ne reste plus le temps de construire une attaque. */
+export const DUREE_MINIMALE_POSSESSION = 7;
 
 /* --------------------------------------------------------- systèmes défensifs */
 
@@ -32,11 +34,11 @@ export const SYSTEMES: Record<SystemeDefensif, ParamsSysteme> = {
   "6-0": {
     libelle: "6-0",
     description: "Bloc bas et compact. Verrouille le pivot et les ailes, mais laisse armer de loin.",
-    defProche: 5.2,
-    defLoin: -3.6,
+    defProche: 4.0,
+    defLoin: -3.0,
     interception: 0.03,
     faute: 0.8,
-    usure: 0.93,
+    usure: 0.96,
   },
   "5-1": {
     libelle: "5-1",
@@ -50,11 +52,11 @@ export const SYSTEMES: Record<SystemeDefensif, ParamsSysteme> = {
   "3-2-1": {
     libelle: "3-2-1",
     description: "Défense haute et agressive. Étouffe les tireurs à distance, mais le pivot vit seul.",
-    defProche: -4.8,
-    defLoin: 5.6,
+    defProche: -2.8,
+    defLoin: 3.6,
     interception: 0.085,
     faute: 1.25,
-    usure: 1.17,
+    usure: 1.1,
   },
 };
 
@@ -80,17 +82,17 @@ export const TEMPOS: Record<Tempo, ParamsTempo> = {
   place: {
     libelle: "Jeu placé",
     description: "Attaques longues et sûres, effectif ménagé. Mais garder le ballon face à une défense agressive, c'est le perdre.",
-    duree: 38,
+    duree: 37,
     efficacite: 0.018,
     contre: 0.16,
     repli: 0.82,
     exposition: 1.5,
-    usure: 0.86,
+    usure: 0.93,
   },
   equilibre: {
     libelle: "Équilibré",
     description: "Le réglage neutre : un peu de transition, une usure normale.",
-    duree: 32,
+    duree: 33,
     efficacite: 0,
     contre: 0.34,
     repli: 1,
@@ -100,12 +102,12 @@ export const TEMPOS: Record<Tempo, ParamsTempo> = {
   rapide: {
     libelle: "Contre-attaque",
     description: "Des buts faciles en transition, mais on se replie mal et ça use l'effectif.",
-    duree: 26.5,
+    duree: 30,
     efficacite: -0.028,
-    contre: 0.48,
-    repli: 1.55,
+    contre: 0.52,
+    repli: 1.38,
     exposition: 0.72,
-    usure: 1.22,
+    usure: 1.1,
   },
 };
 
@@ -116,9 +118,11 @@ export const TEMPOS: Record<Tempo, ParamsTempo> = {
  */
 export const INTERACTION: Record<Tempo, Record<SystemeDefensif, { efficacite: number; perte: number }>> = {
   place: {
-    "6-0": { efficacite: -0.028, perte: -0.01 },
-    "5-1": { efficacite: -0.004, perte: 0.012 },
-    "3-2-1": { efficacite: 0.022, perte: 0.055 },
+    // Contre un bloc installé, la patience paie : on fait circuler jusqu'à la faille.
+    "6-0": { efficacite: 0.015, perte: -0.01 },
+    "5-1": { efficacite: 0, perte: 0.01 },
+    // Contre une défense haute, garder le ballon, c'est le perdre.
+    "3-2-1": { efficacite: -0.01, perte: 0.036 },
   },
   equilibre: {
     "6-0": { efficacite: 0, perte: 0 },
@@ -126,9 +130,11 @@ export const INTERACTION: Record<Tempo, Record<SystemeDefensif, { efficacite: nu
     "3-2-1": { efficacite: 0.004, perte: 0.012 },
   },
   rapide: {
-    "6-0": { efficacite: 0.026, perte: 0.014 },
-    "5-1": { efficacite: 0.004, perte: 0.006 },
-    "3-2-1": { efficacite: -0.014, perte: -0.02 },
+    // Se jeter sur un bloc bas déjà en place, c'est tirer dans le mur.
+    "6-0": { efficacite: -0.018, perte: 0.01 },
+    "5-1": { efficacite: 0.004, perte: 0.004 },
+    // Contre une défense haute, il faut attaquer avant qu'elle soit replacée.
+    "3-2-1": { efficacite: 0.021, perte: -0.016 },
   },
 };
 
@@ -156,11 +162,11 @@ export const SEUILS_ROTATION: Record<ConsigneRotation, number> = {
 
 /** Probabilité de base par type de tir, à qualités égales. */
 export const BASE_TIR: Record<TypeTir, number> = {
-  aile: 0.555,
-  neuf: 0.485,
-  six: 0.615,
-  contre: 0.755,
-  sept: 0.745,
+  aile: 0.528,
+  neuf: 0.458,
+  six: 0.588,
+  contre: 0.73,
+  sept: 0.735,
 };
 
 /** Sensibilité de la réussite à l'écart de qualité, par point d'attribut. */
@@ -175,9 +181,9 @@ export const PENTE_QUALITE = 0.026;
  * arrières ne souffre donc pas du même système qu'une équipe de jeu intérieur.
  */
 export const PART_TIRS: Record<SystemeDefensif, Record<PosteChamp, number>> = {
-  "6-0": { ArG: 1.7, ArD: 1.7, AiG: 0.95, AiD: 0.95, DC: 0.72, PV: 0.72 },
-  "5-1": { ArG: 1.4, ArD: 1.4, AiG: 1, AiD: 1, DC: 0.62, PV: 1 },
-  "3-2-1": { ArG: 1.05, ArD: 1.05, AiG: 1.15, AiD: 1.15, DC: 0.5, PV: 1.5 },
+  "6-0": { ArG: 1.8, ArD: 1.8, AiG: 1, AiD: 1, DC: 0.6, PV: 0.5 },
+  "5-1": { ArG: 1.2, ArD: 1.2, AiG: 1.1, AiD: 1.1, DC: 0.5, PV: 1.05 },
+  "3-2-1": { ArG: 0.6, ArD: 0.6, AiG: 1.25, AiD: 1.25, DC: 0.4, PV: 1.6 },
 };
 
 /** Probabilité qu'un arrière ou un demi-centre pénètre et finisse à six mètres. */
@@ -197,13 +203,46 @@ export const PART_PROVOQUEE = 0.55;
 /* -------------------------------------------------------- contacts irréguliers */
 
 /** Probabilité de base d'un contact irrégulier sanctionné, par possession. */
-export const FAUTE_BASE = 0.185;
+export const FAUTE_BASE = 0.15;
 /** Répartition des sanctions : jet de 7 m seul, exclusion seule, les deux. */
 export const REPARTITION_FAUTE = { septSeul: 0.46, exclusionSeule: 0.3, lesDeux: 0.24 };
 
+/**
+ * La réussite du jour. Un gardien peut être dedans ou à côté, et ça décide des
+ * matchs de handball plus que dans aucun autre sport collectif. La valeur est
+ * tirée au coup d'envoi et jamais affichée : seul le pourcentage d'arrêts
+ * observé permet de la deviner, et c'est ce qui rend la décision de changer de
+ * gardien intéressante.
+ */
+export const ECART_JOUR_GARDIEN = 0.1;
+export const ECART_JOUR_CHAMP = 0.055;
+
+/* ------------------------------------------------------------- temps morts */
+
+/** Règles réelles : trois par match, deux par mi-temps, un dans les cinq dernières minutes. */
+export const TEMPS_MORTS_PAR_MATCH = 3;
+export const TEMPS_MORTS_PAR_MI_TEMPS = 2;
+export const FENETRE_FIN_MATCH = 300;
+/** Une minute d'arrêt rend un peu de jambes. */
+export const RECUPERATION_TEMPS_MORT = 8;
+/** Durée de l'effet, en possessions de l'équipe qui a demandé le temps mort. */
+export const POSSESSIONS_APRES_TEMPS_MORT = 3;
+/** Ce que vaut un temps mort bien placé : une consigne claire et des jambes fraîches. */
+export const EFFET_TEMPS_MORT = { efficacite: 0.075, perte: 0.66 };
+
+/**
+ * L'élan. Une équipe qui enchaîne les buts joue plus haut, et le handball se
+ * joue par séries de trois ou quatre. C'est la raison d'être du temps mort :
+ * il remet l'élan adverse à zéro. Sans lui, demander un temps mort ne serait
+ * qu'un petit bonus d'efficacité sans enjeu.
+ */
+export const ELAN_SEUIL = 2;
+export const ELAN_PAR_BUT = 0.022;
+export const ELAN_MAX = 0.075;
+
 /* ------------------------------------------------------------ divers réglages */
 
-export const AVANTAGE_DOMICILE = 0.035;
+export const AVANTAGE_DOMICILE = 0.048;
 /** Effet d'un joueur de plus (ou de moins) sur la réussite au tir. */
 export const EFFET_SUPERIORITE = 0.052;
 /**
@@ -224,10 +263,18 @@ export const PART_MANQUE = 0.18;
 export const DUREE_EXCLUSION = 120;
 /** Trois exclusions et le joueur est disqualifié pour le reste du match. */
 export const EXCLUSIONS_AVANT_DISQUALIFICATION = 3;
-/** Usure : points de condition perdus par minute sur le terrain. */
-export const USURE_PAR_MINUTE = 0.42;
-export const RECUPERATION_BANC_PAR_MINUTE = 0.3;
+/**
+ * Usure : points de condition perdus par minute sur le terrain.
+ * Soixante minutes pleines coûtent près de soixante points à un joueur de
+ * résistance moyenne — c'est ce qui fait du banc une ressource et non un décor.
+ */
+export const USURE_PAR_MINUTE = 1.2;
+export const RECUPERATION_BANC_PAR_MINUTE = 1.3;
 /** Fenêtre de fin de match où le gardien volant devient envisageable. */
 export const FENETRE_GARDIEN_VOLANT = 300;
-/** Réussite adverse sur but vide quand le gardien volant se fait prendre. */
-export const BUT_VIDE = 0.86;
+/**
+ * But vide : seule une balle réellement interceptée part au but vide, et il
+ * faut encore la mettre depuis sa propre moitié de terrain. Punir toutes les
+ * pertes de balle rendait le sept contre six suicidaire, ce qu'il n'est pas.
+ */
+export const BUT_VIDE = 0.62;

@@ -21,11 +21,23 @@ import {
 import {
   AFFINITE_TEMPO,
   AVANTAGE_DOMICILE,
+  ECART_JOUR_CHAMP,
+  ECART_JOUR_GARDIEN,
+  ELAN_MAX,
+  ELAN_PAR_BUT,
+  ELAN_SEUIL,
+  EFFET_TEMPS_MORT,
+  FENETRE_FIN_MATCH,
+  POSSESSIONS_APRES_TEMPS_MORT,
+  RECUPERATION_TEMPS_MORT,
+  TEMPS_MORTS_PAR_MATCH,
+  TEMPS_MORTS_PAR_MI_TEMPS,
   BASE_TIR,
   BUT_VIDE,
   DUREE_EXCLUSION,
   DUREE_MATCH,
   DUREE_MI_TEMPS,
+  DUREE_MINIMALE_POSSESSION,
   EFFET_SUPERIORITE,
   EXCLUSIONS_AVANT_DISQUALIFICATION,
   FAUTE_BASE,
@@ -63,6 +75,11 @@ export type OptionsMatch = {
   commentaire?: boolean;
   /** Terrain neutre : pas d'avantage pour l'équipe « à domicile ». */
   neutre?: boolean;
+  /**
+   * Camp dont les temps morts et les changements sont laissés à l'appelant.
+   * Sans ce réglage, les deux bancs sont tenus par le moteur.
+   */
+  pilote?: Camp;
 };
 
 /* ------------------------------------------------------------ état interne */
@@ -71,6 +88,8 @@ type EtatJoueur = {
   j: Joueur;
   secondes: number;
   condition: number;
+  /** Réussite du jour, tirée au coup d'envoi et jamais affichée. */
+  jour: number;
   stats: StatsJoueurMatch;
   exclusionsSubies: number;
   disqualifie: boolean;
@@ -95,6 +114,16 @@ type Cote = {
   changements: number;
   score: number;
   miTemps: number;
+  /** Temps morts pris : total, par mi-temps, et dans les cinq dernières minutes. */
+  tempsMorts: { total: number; parMiTemps: [number, number]; fin: number };
+  /** Possessions restantes sous l'effet du dernier temps mort. */
+  bonusTempsMort: number;
+  /** Buts encaissés d'affilée sans réponse — ce qui déclenche un temps mort. */
+  serieAdverse: number;
+  /** Buts marqués d'affilée sans en encaisser : l'élan du moment. */
+  elan: number;
+  /** Banc tenu par un humain : le moteur n'y touche pas tout seul. */
+  pilote: boolean;
 };
 
 function statsEquipeVides(): StatsEquipeMatch {
@@ -131,12 +160,13 @@ function statsJoueurVides(joueurId: string): StatsJoueurMatch {
   };
 }
 
-function creerCote(entree: EntreeEquipe, camp: Camp): Cote {
+function creerCote(entree: EntreeEquipe, camp: Camp, alea: Aleatoire): Cote {
   const etats = new Map<string, EtatJoueur>();
   for (const j of entree.effectif) {
     etats.set(j.id, {
       j,
       secondes: 0,
+      jour: 1 + alea.gaussien(0, j.poste === "GB" ? ECART_JOUR_GARDIEN : ECART_JOUR_CHAMP),
       condition: j.blessureJours > 0 ? 0 : j.condition,
       stats: statsJoueurVides(j.id),
       exclusionsSubies: 0,
@@ -185,6 +215,11 @@ function creerCote(entree: EntreeEquipe, camp: Camp): Cote {
     changements: 0,
     score: 0,
     miTemps: 0,
+    tempsMorts: { total: 0, parMiTemps: [0, 0], fin: 0 },
+    bonusTempsMort: 0,
+    serieAdverse: 0,
+    elan: 0,
+    pilote: false,
   };
 }
 
@@ -197,7 +232,7 @@ function attr(cote: Cote, id: string, cle: CleAttribut, posteJoue: Poste): numbe
   let v = e.j.attributs[cle];
   if (cle === "tir") v += malusMain(posteJoue, e.j.main) - malusMain(e.j.poste, e.j.main);
   const facteurPoste = 1 + malusPoste(e.j, posteJoue) / 22;
-  return v * facteurPoste * facteurEtat(e.condition, e.j.forme, e.j.moral);
+  return v * facteurPoste * e.jour * facteurEtat(e.condition, e.j.forme, e.j.moral);
 }
 
 function moyenneChamp(cote: Cote, cle: CleAttribut): number {
@@ -219,8 +254,12 @@ function qualiteGardien(cote: Cote): number {
 
 /* ------------------------------------------------------------ temps & banc */
 
-/** Fait avancer l'horloge : temps de jeu, usure, fin des exclusions. */
-function avancerTemps(cote: Cote, dt: number, t: number, journal: ((e: Partial<EvenementMatch>) => void) | null) {
+/**
+ * Crédite le temps de jeu et l'usure. À appeler après avoir réglé les entrées
+ * et les sorties : un joueur qui vient d'entrer doit être payé de la
+ * possession qu'il va disputer, sinon il peut marquer sans figurer nulle part.
+ */
+function crediterTemps(cote: Cote, dt: number) {
   const minutes = dt / 60;
   // Le compte du temps de jeu : sept joueurs sur le terrain, moins les exclus.
   const surTerrain = cote.champ.length + (cote.gardien ? 1 : 0);
@@ -242,8 +281,10 @@ function avancerTemps(cote: Cote, dt: number, t: number, journal: ((e: Partial<E
     const e = cote.etats.get(id)!;
     e.condition = borner(e.condition + RECUPERATION_BANC_PAR_MINUTE * minutes, 0, 100);
   }
+}
 
-  // Retour des exclus dont les deux minutes sont écoulées.
+/** Retour des exclus dont les deux minutes sont écoulées, à l'instant t. */
+function finirExclusions(cote: Cote, t: number, journal: ((e: Partial<EvenementMatch>) => void) | null) {
   for (let i = cote.exclusions.length - 1; i >= 0; i--) {
     const ex = cote.exclusions[i];
     if (ex.fin > t) continue;
@@ -462,77 +503,380 @@ function qualiteDefense(def: Cote, type: TypeTir): number {
 
 /* ------------------------------------------------------------- simulation */
 
-export function simulerMatch(domicile: EntreeEquipe, exterieur: EntreeEquipe, options: OptionsMatch): FeuilleMatch {
+type Journal = (e: Partial<EvenementMatch>) => void;
+
+/**
+ * Un match en cours. Le moteur ne joue plus forcément soixante minutes d'un
+ * bloc : on peut l'arrêter, intervenir, puis reprendre — c'est ce qui permet
+ * de tenir un banc pendant la rencontre au lieu de la regarder défiler.
+ */
+export type EtatMatch = {
+  D: Cote;
+  E: Cote;
+  /** Seconde de jeu écoulée. */
+  t: number;
+  alea: Aleatoire;
+  evenements: EvenementMatch[];
+  journal: Journal | null;
+  neutre: boolean;
+  attaque: Cote;
+  contrePour: Cote | null;
+  rebond: boolean;
+  miTempsFaite: boolean;
+  termine: boolean;
+};
+
+export function creerMatch(domicile: EntreeEquipe, exterieur: EntreeEquipe, options: OptionsMatch): EtatMatch {
   const alea = creerAleatoire(options.graine);
-  const commenter = options.commentaire === true;
-  const D = creerCote(domicile, "domicile");
-  const E = creerCote(exterieur, "exterieur");
+  const D = creerCote(domicile, "domicile", alea);
+  const E = creerCote(exterieur, "exterieur", alea);
+  if (options.pilote === "domicile") D.pilote = true;
+  if (options.pilote === "exterieur") E.pilote = true;
   const evenements: EvenementMatch[] = [];
 
-  const journal = commenter
-    ? (e: Partial<EvenementMatch>) =>
-        evenements.push({
-          seconde: e.seconde ?? 0,
-          type: e.type ?? "changement",
-          camp: e.camp ?? null,
-          texte: e.texte ?? "",
-          scoreDomicile: D.score,
-          scoreExterieur: E.score,
-        })
-    : null;
+  const journal: Journal | null =
+    options.commentaire === true
+      ? (e: Partial<EvenementMatch>) =>
+          evenements.push({
+            seconde: e.seconde ?? 0,
+            type: e.type ?? "changement",
+            camp: e.camp ?? null,
+            texte: e.texte ?? "",
+            scoreDomicile: D.score,
+            scoreExterieur: E.score,
+          })
+      : null;
 
-  if (journal) {
-    journal({ seconde: 0, type: "coupEnvoi", camp: null, texte: `Coup d'envoi — ${D.club.nom} reçoit ${E.club.nom}` });
-  }
+  journal?.({ seconde: 0, type: "coupEnvoi", camp: null, texte: `Coup d'envoi — ${D.club.nom} reçoit ${E.club.nom}` });
 
-  let t = 0;
-  let attaque = alea.chance(0.5) ? D : E;
-  let miTempsFaite = false;
-  /** Équipe lancée en contre-attaque sur la possession suivante. */
-  let contrePour: Cote | null = null;
-  /** La possession suivante prolonge la précédente après un rebond offensif. */
-  let rebond = false;
+  return {
+    D,
+    E,
+    t: 0,
+    alea,
+    evenements,
+    journal,
+    neutre: options.neutre === true,
+    attaque: alea.chance(0.5) ? D : E,
+    contrePour: null,
+    rebond: false,
+    miTempsFaite: false,
+    termine: false,
+  };
+}
 
-  while (t < DUREE_MATCH) {
-    const defense = attaque === D ? E : D;
-    const contre = contrePour === attaque;
-    contrePour = null;
+/**
+ * Avance jusqu'à la seconde visée. Les possessions sont toujours jouées
+ * entières : on dépasse donc légèrement la cible, mais on ne coupe jamais une
+ * attaque en deux. C'est ce qui garantit qu'un match joué en dix morceaux
+ * donne exactement le même résultat que le même match joué d'un bloc.
+ */
+export function avancerMatch(etat: EtatMatch, cible: number): void {
+  const { alea, journal } = etat;
+  const fin = Math.min(cible, DUREE_MATCH);
+
+  while (!etat.termine && etat.t < fin) {
+    // Il ne reste pas de quoi monter une attaque : on laisse filer le temps
+    // plutôt que de créditer une possession de trois secondes à un joueur qui
+    // vient d'entrer. Le compte du temps de jeu, lui, doit rester exact.
+    if (DUREE_MATCH - etat.t < DUREE_MINIMALE_POSSESSION) {
+      const reste = DUREE_MATCH - etat.t;
+      crediterTemps(etat.D, reste);
+      crediterTemps(etat.E, reste);
+      etat.t = DUREE_MATCH;
+      break;
+    }
+    const attaque = etat.attaque;
+    const defense = attaque === etat.D ? etat.E : etat.D;
+    const contre = etat.contrePour === attaque;
+    etat.contrePour = null;
 
     const tempo = TEMPOS[attaque.tactique.tempo];
     const duree = contre
       ? alea.entre(8, 15)
       : borner(alea.gaussien(tempo.duree, 7), 11, tempo.duree + 22);
-    const dt = Math.min(duree, DUREE_MATCH - t);
+    const dt = Math.min(duree, DUREE_MATCH - etat.t);
+    const cible = etat.t + dt;
 
-    avancerTemps(D, dt, t + dt, journal);
-    avancerTemps(E, dt, t + dt, journal);
-    t += dt;
+    finirExclusions(etat.D, cible, journal);
+    finirExclusions(etat.E, cible, journal);
+    gererGardienVolant(etat.D, etat.E, cible, journal);
+    gererGardienVolant(etat.E, etat.D, cible, journal);
+    rotation(attaque, cible, journal);
+    rotation(defense, cible, journal);
+    if (!attaque.pilote) tempsMortAutomatique(etat, attaque);
 
-    if (!miTempsFaite && t >= DUREE_MI_TEMPS) {
-      miTempsFaite = true;
-      D.miTemps = D.score;
-      E.miTemps = E.score;
-      if (journal) {
-        journal({ seconde: DUREE_MI_TEMPS, type: "miTemps", camp: null, texte: `Mi-temps — ${D.club.abbr} ${D.score} : ${E.score} ${E.club.abbr}` });
-      }
+    crediterTemps(etat.D, dt);
+    crediterTemps(etat.E, dt);
+    etat.t = cible;
+
+    if (!etat.miTempsFaite && etat.t >= DUREE_MI_TEMPS) {
+      etat.miTempsFaite = true;
+      etat.D.miTemps = etat.D.score;
+      etat.E.miTemps = etat.E.score;
+      journal?.({
+        seconde: DUREE_MI_TEMPS,
+        type: "miTemps",
+        camp: null,
+        texte: `Mi-temps — ${etat.D.club.abbr} ${etat.D.score} : ${etat.E.score} ${etat.E.club.abbr}`,
+      });
     }
 
-    gererGardienVolant(D, E, t, journal);
-    gererGardienVolant(E, D, t, journal);
-    rotation(attaque, t, journal);
-    rotation(defense, t, journal);
-
-    const suite = resoudrePossession(attaque, defense, t, alea, journal, options.neutre === true, contre, rebond);
-    if (suite.contrePour) contrePour = suite.contrePour;
-    rebond = suite.rebond === true;
-    attaque = suite.prochaineAttaque;
+    const suite = resoudrePossession(attaque, defense, etat.t, alea, journal, etat.neutre, contre, etat.rebond);
+    if (suite.contrePour) etat.contrePour = suite.contrePour;
+    etat.rebond = suite.rebond === true;
+    etat.attaque = suite.prochaineAttaque;
   }
 
-  if (journal) {
-    journal({ seconde: DUREE_MATCH, type: "fin", camp: null, texte: `Fin du match — ${D.club.abbr} ${D.score} : ${E.score} ${E.club.abbr}` });
+  if (etat.t >= DUREE_MATCH && !etat.termine) {
+    etat.termine = true;
+    journal?.({
+      seconde: DUREE_MATCH,
+      type: "fin",
+      camp: null,
+      texte: `Fin du match — ${etat.D.club.abbr} ${etat.D.score} : ${etat.E.score} ${etat.E.club.abbr}`,
+    });
+  }
+}
+
+export function terminerMatch(etat: EtatMatch): FeuilleMatch {
+  avancerMatch(etat, DUREE_MATCH);
+  return feuille(etat.D, etat.E, etat.evenements);
+}
+
+/** Le match d'un bloc, sans intervention : le cas des rencontres entre clubs IA. */
+export function simulerMatch(domicile: EntreeEquipe, exterieur: EntreeEquipe, options: OptionsMatch): FeuilleMatch {
+  return terminerMatch(creerMatch(domicile, exterieur, options));
+}
+
+/* --------------------------------------------------------- le banc, en direct */
+
+export type ReponseBanc = { ok: boolean; raison?: string };
+
+function cote(etat: EtatMatch, camp: Camp): Cote {
+  return camp === "domicile" ? etat.D : etat.E;
+}
+
+/**
+ * Temps mort d'équipe. Les règles réelles : trois par match, deux au maximum
+ * par mi-temps, un seul dans les cinq dernières minutes, et seulement quand on
+ * a le ballon. Ce dernier point fait toute la difficulté — on ne coupe pas
+ * l'élan adverse quand on veut, mais quand on peut.
+ */
+export function demanderTempsMort(etat: EtatMatch, camp: Camp): ReponseBanc {
+  const c = cote(etat, camp);
+  if (etat.termine) return { ok: false, raison: "Le match est terminé." };
+  if (etat.attaque !== c) return { ok: false, raison: "Il faut avoir le ballon pour demander un temps mort." };
+  if (c.tempsMorts.total >= TEMPS_MORTS_PAR_MATCH) return { ok: false, raison: "Vos trois temps morts sont pris." };
+  const moitie = etat.t < DUREE_MI_TEMPS ? 0 : 1;
+  if (c.tempsMorts.parMiTemps[moitie] >= TEMPS_MORTS_PAR_MI_TEMPS) {
+    return { ok: false, raison: "Deux temps morts au maximum par mi-temps." };
+  }
+  if (etat.t >= DUREE_MATCH - FENETRE_FIN_MATCH && c.tempsMorts.fin >= 1) {
+    return { ok: false, raison: "Un seul temps mort dans les cinq dernières minutes." };
   }
 
-  return feuille(D, E, evenements);
+  c.tempsMorts.total++;
+  c.tempsMorts.parMiTemps[moitie]++;
+  if (etat.t >= DUREE_MATCH - FENETRE_FIN_MATCH) c.tempsMorts.fin++;
+  c.bonusTempsMort = POSSESSIONS_APRES_TEMPS_MORT;
+  c.serieAdverse = 0;
+  // Tout l'intérêt du temps mort : il casse la série d'en face.
+  (c === etat.D ? etat.E : etat.D).elan = 0;
+  for (const place of c.champ) {
+    const e = c.etats.get(place.id)!;
+    e.condition = borner(e.condition + RECUPERATION_TEMPS_MORT, 0, 100);
+  }
+  if (c.gardien) {
+    const g = c.etats.get(c.gardien)!;
+    g.condition = borner(g.condition + RECUPERATION_TEMPS_MORT, 0, 100);
+  }
+  etat.journal?.({
+    seconde: etat.t,
+    type: "tempsMort",
+    camp,
+    texte: `Temps mort demandé par ${c.club.nom} (${c.tempsMorts.total}/${TEMPS_MORTS_PAR_MATCH})`,
+  });
+  return { ok: true };
+}
+
+/**
+ * Politique du banc quand personne ne le tient : le moteur ne garde que le
+ * temps mort évident, celui de la dernière attaque d'un match serré. Tout le
+ * reste — couper une série, poser une consigne, reposer des jambes — relève du
+ * manager. Un moteur qui jouerait le match à sa place rendrait le banc décoratif.
+ */
+function tempsMortAutomatique(etat: EtatMatch, c: Cote) {
+  const adverse = c === etat.D ? etat.E : etat.D;
+  const retard = adverse.score - c.score;
+  if (etat.t < DUREE_MATCH - 120 || retard < 0 || retard > 2) return;
+  demanderTempsMort(etat, c.camp);
+}
+
+/** Changement en cours de match : un joueur du banc prend la place d'un joueur du terrain. */
+export function effectuerChangement(etat: EtatMatch, camp: Camp, sortantId: string, entrantId: string): ReponseBanc {
+  const c = cote(etat, camp);
+  if (etat.termine) return { ok: false, raison: "Le match est terminé." };
+  const entrant = c.etats.get(entrantId);
+  const sortant = c.etats.get(sortantId);
+  if (!entrant || !sortant) return { ok: false, raison: "Joueur inconnu." };
+  if (entrant.disqualifie) return { ok: false, raison: "Ce joueur ne peut plus entrer." };
+  if (!c.banc.includes(entrantId)) return { ok: false, raison: "Ce joueur n'est pas sur le banc." };
+
+  if (c.gardien === sortantId) {
+    if (entrant.j.poste !== "GB") return { ok: false, raison: "Seul un gardien remplace le gardien." };
+    c.banc.splice(c.banc.indexOf(entrantId), 1);
+    c.banc.push(sortantId);
+    sortant.surTerrain = false;
+    entrant.surTerrain = true;
+    c.gardien = entrantId;
+  } else {
+    const index = c.champ.findIndex((p) => p.id === sortantId);
+    if (index < 0) return { ok: false, raison: "Ce joueur n'est pas sur le terrain." };
+    if (entrant.j.poste === "GB") return { ok: false, raison: "Un gardien ne joue pas sur le champ." };
+    const poste = c.champ[index].poste;
+    c.banc.splice(c.banc.indexOf(entrantId), 1);
+    c.banc.push(sortantId);
+    sortant.surTerrain = false;
+    entrant.surTerrain = true;
+    c.champ[index] = { id: entrantId, poste };
+  }
+
+  c.changements++;
+  etat.journal?.({
+    seconde: etat.t,
+    type: "changement",
+    camp,
+    texte: `${c.club.abbr} — ${nomCourt(entrant.j)} remplace ${nomCourt(sortant.j)}`,
+  });
+  return { ok: true };
+}
+
+/** Consignes modifiables en cours de match, comme on les crierait depuis le banc. */
+export function ajusterTactique(
+  etat: EtatMatch,
+  camp: Camp,
+  modif: Partial<Pick<Tactique, "systeme" | "tempo" | "rotation" | "gardienVolant">>,
+): ReponseBanc {
+  const c = cote(etat, camp);
+  if (etat.termine) return { ok: false, raison: "Le match est terminé." };
+  const avant = { systeme: c.tactique.systeme, tempo: c.tactique.tempo };
+  c.tactique = { ...c.tactique, ...modif };
+  if (modif.systeme && modif.systeme !== avant.systeme) {
+    etat.journal?.({ seconde: etat.t, type: "changement", camp, texte: `${c.club.abbr} passe en ${modif.systeme}` });
+  }
+  if (modif.tempo && modif.tempo !== avant.tempo) {
+    etat.journal?.({ seconde: etat.t, type: "changement", camp, texte: `${c.club.abbr} change de rythme` });
+  }
+  return { ok: true };
+}
+
+/* ------------------------------------------------------- vue pour l'interface */
+
+export type ApercuJoueur = {
+  id: string;
+  nom: string;
+  /** Note du joueur à son poste naturel, sur 20. */
+  note: number;
+  /** Valeur défensive brute, pour composer un bloc en infériorité. */
+  defense: number;
+  /** Valeur offensive brute, pour composer une attaque en supériorité. */
+  attaque: number;
+  posteNaturel: Poste;
+  posteJoue: Poste | null;
+  condition: number;
+  secondes: number;
+  buts: number;
+  tirs: number;
+  arrets: number;
+  tirsSubis: number;
+  pertes: number;
+  exclusionsSubies: number;
+  disqualifie: boolean;
+  exclusJusqua: number | null;
+};
+
+export type ApercuCote = {
+  camp: Camp;
+  clubId: string;
+  nom: string;
+  abbr: string;
+  score: number;
+  systeme: Tactique["systeme"];
+  tempo: Tactique["tempo"];
+  gardienVolant: boolean;
+  tempsMortsRestants: number;
+  serieAdverse: number;
+  gardien: ApercuJoueur | null;
+  champ: ApercuJoueur[];
+  banc: ApercuJoueur[];
+  stats: StatsEquipeMatch;
+};
+
+export type ApercuMatch = {
+  t: number;
+  termine: boolean;
+  possession: Camp;
+  domicile: ApercuCote;
+  exterieur: ApercuCote;
+  evenements: EvenementMatch[];
+};
+
+function apercuJoueur(c: Cote, id: string, posteJoue: Poste | null): ApercuJoueur {
+  const e = c.etats.get(id)!;
+  const exclusion = c.exclusions.find((x) => x.id === id);
+  return {
+    id,
+    nom: nomCourt(e.j),
+    note: note(e.j.poste, e.j.attributs),
+    defense: e.j.attributs.defense * 0.7 + e.j.attributs.blocage * 0.3,
+    attaque: e.j.attributs.tir * 0.6 + e.j.attributs.duel * 0.2 + e.j.attributs.puissance * 0.2,
+    posteNaturel: e.j.poste,
+    posteJoue,
+    condition: Math.round(e.condition),
+    secondes: Math.round(e.secondes),
+    buts: e.stats.buts,
+    tirs: e.stats.tirs,
+    arrets: e.stats.arrets,
+    tirsSubis: e.stats.tirsSubis,
+    pertes: e.stats.pertes,
+    exclusionsSubies: e.exclusionsSubies,
+    disqualifie: e.disqualifie,
+    exclusJusqua: exclusion ? Math.round(exclusion.fin) : null,
+  };
+}
+
+function apercuCote(c: Cote): ApercuCote {
+  return {
+    camp: c.camp,
+    clubId: c.club.id,
+    nom: c.club.nom,
+    abbr: c.club.abbr,
+    score: c.score,
+    systeme: c.tactique.systeme,
+    tempo: c.tactique.tempo,
+    gardienVolant: c.gardienVolant,
+    tempsMortsRestants: TEMPS_MORTS_PAR_MATCH - c.tempsMorts.total,
+    serieAdverse: c.serieAdverse,
+    gardien: c.gardien ? apercuJoueur(c, c.gardien, "GB") : null,
+    champ: c.champ.map((p) => apercuJoueur(c, p.id, p.poste)),
+    banc: [...c.banc, ...c.exclusions.map((x) => x.id)]
+      .filter((id, i, liste) => liste.indexOf(id) === i)
+      .map((id) => apercuJoueur(c, id, null)),
+    stats: c.stats,
+  };
+}
+
+/** Photographie du match à cet instant, sans exposer l'état interne du moteur. */
+export function apercuMatch(etat: EtatMatch): ApercuMatch {
+  return {
+    t: Math.round(etat.t),
+    termine: etat.termine,
+    possession: etat.attaque.camp,
+    domicile: apercuCote(etat.D),
+    exterieur: apercuCote(etat.E),
+    evenements: etat.evenements,
+  };
 }
 
 type SuitePossession = { prochaineAttaque: Cote; contrePour: Cote | null; rebond?: boolean };
@@ -554,20 +898,25 @@ function resoudrePossession(
   const sysDef = SYSTEMES[def.tactique.systeme];
   const inter = INTERACTION[att.tactique.tempo][def.tactique.systeme];
   const avantage = att.champ.length - def.champ.length;
+  // Le temps mort agit sur les deux possessions suivantes : consigne claire,
+  // jambes reposées, et un ballon qu'on perd moins bêtement.
+  const apresTempsMort = att.bonusTempsMort > 0;
+  if (apresTempsMort && !rebond) att.bonusTempsMort--;
 
   if (estContre) {
     att.stats.contreAttaques++;
-    return tirer(att, def, t, alea, journal, neutre, "contre", avantage);
+    return tirer(att, def, t, alea, journal, neutre, "contre", avantage, undefined, apresTempsMort);
   }
 
   /* 1. Perte de balle. */
   const maitrise = (moyenneChamp(att, "passe") + moyenneChamp(att, "vision")) / 2;
   const pression = (moyenneChamp(def, "interception") * 0.6 + moyenneChamp(def, "agressivite") * 0.4);
   const pPerte = borner(
-    PERTE_BASE +
+    (PERTE_BASE +
       (sysDef.interception * tempoAtt.exposition + inter.perte) +
       (pression - maitrise) * 0.012 -
-      avantage * 0.022,
+      avantage * 0.022) *
+      (apresTempsMort ? EFFET_TEMPS_MORT.perte : 1),
     0.03,
     0.45,
   );
@@ -594,8 +943,8 @@ function resoudrePossession(
           : `Perte de balle de ${nomCourt(eAtt.j)} (${att.club.abbr})`,
       });
     }
-    // But vide : le gardien volant se paie cash sur les pertes de balle.
-    if (att.gardienVolant && alea.chance(BUT_VIDE)) {
+    // But vide : seule une balle interceptée part de l'autre côté du terrain.
+    if (att.gardienVolant && provoquee && alea.chance(BUT_VIDE)) {
       const marqueur = alea.choix(def.champ);
       marquer(def, att, marqueur, t, alea, journal, "contre", `But ${def.club.abbr} — ${nomCourt(def.etats.get(marqueur.id)!.j)} dans le but vide`);
       return { prochaineAttaque: att, contrePour: null };
@@ -624,7 +973,7 @@ function resoudrePossession(
   /* 3. Le tir. */
   const place = choisirTireur(att, def, alea);
   const type = typeTirPour(place.poste, def.tactique.systeme, alea);
-  return tirer(att, def, t, alea, journal, neutre, type, avantage, place);
+  return tirer(att, def, t, alea, journal, neutre, type, avantage, place, apresTempsMort);
 }
 
 /** Bonus (ou malus) d'efficacité selon l'adéquation entre le tempo et l'effectif aligné. */
@@ -637,9 +986,13 @@ function affiniteTempo(cote: Cote): number {
 
 function choisirTireur(att: Cote, def: Cote, alea: Aleatoire): PlaceChamp {
   const parts = PART_TIRS[def.tactique.systeme];
+  // Le poste décide de la part des ballons bien plus que le talent : un
+  // arrière tire parce qu'il est arrière. Sans ce socle, le meilleur tireur
+  // accaparait un tiers des ballons et finissait la saison à dix buts par
+  // match, deux fois le record réel d'un championnat.
   const poids = att.champ.map((p) => {
     const e = att.etats.get(p.id)!;
-    return Math.max(0.6, e.j.attributs.tir * (parts[p.poste] ?? 1) * facteurEtat(e.condition, e.j.forme, e.j.moral));
+    return Math.max(0.6, (24 + e.j.attributs.tir) * (parts[p.poste] ?? 1) * facteurEtat(e.condition, e.j.forme, e.j.moral));
   });
   return alea.choixPondere(att.champ, poids);
 }
@@ -654,6 +1007,7 @@ function tirer(
   type: TypeTir,
   avantage: number,
   placeForcee?: PlaceChamp,
+  apresTempsMort = false,
 ): SuitePossession {
   if (!att.champ.length) return { prochaineAttaque: def, contrePour: null };
   const place = placeForcee ?? choisirTireur(att, def, alea);
@@ -672,6 +1026,8 @@ function tirer(
       inter.efficacite +
       avantage * EFFET_SUPERIORITE +
       relachement +
+      (apresTempsMort ? EFFET_TEMPS_MORT.efficacite : 0) +
+      borner((att.elan - ELAN_SEUIL) * ELAN_PAR_BUT, 0, ELAN_MAX) +
       (att.camp === "domicile" && !neutre ? AVANTAGE_DOMICILE : 0),
     0.08,
     0.96,
@@ -727,11 +1083,12 @@ function tirerSeptMetres(
   journal: ((e: Partial<EvenementMatch>) => void) | null,
 ): SuitePossession {
   if (!att.champ.length) return { prochaineAttaque: def, contrePour: null };
-  // Le tireur désigné : celui qui a les nerfs, pas forcément le meilleur tireur.
-  const place = att.champ.reduce((meilleur, p) => {
-    const v = (x: PlaceChamp) => att.etats.get(x.id)!.j.attributs.sangFroid * 0.6 + att.etats.get(x.id)!.j.attributs.tir * 0.4;
-    return v(p) > v(meilleur) ? p : meilleur;
-  }, att.champ[0]);
+  // Le tireur désigné : celui qui a les nerfs, pas forcément le meilleur
+  // tireur. Un club a un tireur attitré et une doublure — sans elle, un seul
+  // joueur prendrait les cent jets de 7 m de la saison.
+  const v = (x: PlaceChamp) => att.etats.get(x.id)!.j.attributs.sangFroid * 0.6 + att.etats.get(x.id)!.j.attributs.tir * 0.4;
+  const ordre = [...att.champ].sort((a, b) => v(b) - v(a));
+  const place = ordre.length > 1 && alea.chance(0.3) ? ordre[1] : ordre[0];
   const e = att.etats.get(place.id)!;
 
   att.stats.septMetresTires++;
@@ -779,6 +1136,10 @@ function marquer(
   att.score++;
   att.stats.buts++;
   e.stats.buts++;
+  att.serieAdverse = 0;
+  att.elan++;
+  def.serieAdverse++;
+  def.elan = 0;
   if (journal) {
     journal({
       seconde: t,

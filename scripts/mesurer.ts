@@ -8,6 +8,7 @@
  */
 import { creerMonde, indexer, disponibles, forceClub } from "../src/moteur/monde";
 import { simulerMatch } from "../src/moteur/match/moteur";
+import { simulerAvecAdjoints } from "../src/jeu/pilote";
 import { creerAleatoire } from "../src/moteur/aleatoire";
 import type { SystemeDefensif, Tempo } from "../src/moteur/types";
 
@@ -53,13 +54,13 @@ const arrets: number[] = [];
 const diffs: number[] = [];
 let nuls = 0;
 
-console.log(`\n=== ${N} matchs de Ligue Élite, tactiques par défaut ===\n`);
+console.log(`\n=== ${N} matchs de Ligue Élite, bancs tenus par les adjoints ===\n`);
 const debut = Date.now();
 for (let i = 0; i < N; i++) {
   const a = alea.entier(0, d1.length - 1);
   let b = alea.entier(0, d1.length - 1);
   if (b === a) b = (b + 1) % d1.length;
-  const feuille = simulerMatch(entree(d1[a]), entree(d1[b]), { graine: 1000 + i });
+  const feuille = simulerAvecAdjoints(entree(d1[a]), entree(d1[b]), { graine: 1000 + i });
   for (const s of [feuille.statsDomicile, feuille.statsExterieur]) {
     buts.push(s.buts);
     tirs.push(s.tirs);

@@ -25,16 +25,11 @@ export function tactiqueIA(
   // 70 % du temps, le système conseillé par l'observation ; sinon le 5-1.
   const systeme: SystemeDefensif = alea.chance(0.7) ? rapport.systemeConseille : "5-1";
 
-  // Le tempo suit l'effectif : des jambes jouent la transition, un collectif
-  // technique joue placé.
-  const titulaires = Object.entries(meilleurSept(effectif))
-    .filter(([poste]) => poste !== "GB")
-    .map(([, id]) => idx.joueurParId.get(id)!)
-    .filter(Boolean);
-  const moyenne = (cle: "vitesse" | "vision" | "passe") =>
-    titulaires.reduce((s, j) => s + j.attributs[cle], 0) / Math.max(1, titulaires.length);
-  const ecart = moyenne("vitesse") - (moyenne("vision") + moyenne("passe")) / 2;
-  const tempo: Tempo = ecart > 0.8 ? "rapide" : ecart < -0.8 ? "place" : "equilibre";
+  // Le rythme se choisit d'abord contre la défense annoncée d'en face : on
+  // prend son temps devant un bloc bas, on attaque vite une défense haute.
+  const systemeAdverse = idx.clubParId.get(adversaireId)?.tactique.systeme ?? "5-1";
+  const tempo: Tempo =
+    systemeAdverse === "6-0" ? "place" : systemeAdverse === "3-2-1" ? "rapide" : "equilibre";
 
   return {
     ...club.tactique,

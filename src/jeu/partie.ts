@@ -11,6 +11,7 @@ import {
 } from "../moteur/saison";
 import type { FeuilleMatch, Monde } from "../moteur/types";
 import { tactiqueIA } from "./ia";
+import { simulerAvecAdjoints } from "./pilote";
 
 export const VERSION_SAUVEGARDE = 1;
 
@@ -97,6 +98,7 @@ export function jouerProchaineJournee(partie: Partie, idx: IndexMonde): MatchJou
   jouerJourneeSaison(partie.monde, partie.saison, idx, {
     commentairePour: partie.clubId,
     feuilleFournie: feuilleJoueur,
+    simuler: simulerAvecAdjoints,
   });
 
   partie.dernierMatchVu = false;
