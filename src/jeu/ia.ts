@@ -1,6 +1,6 @@
 import { creerAleatoire, grainePour } from "../moteur/aleatoire";
 import type { IndexMonde } from "../moteur/monde";
-import { meilleurSept } from "../moteur/monde";
+import { echangesProposes, meilleurSept } from "../moteur/monde";
 import type { Monde, SystemeDefensif, Tactique, Tempo } from "../moteur/types";
 import { observer } from "./observation";
 
@@ -31,12 +31,14 @@ export function tactiqueIA(
   const tempo: Tempo =
     systemeAdverse === "6-0" ? "place" : systemeAdverse === "3-2-1" ? "rapide" : "equilibre";
 
+  const sept = meilleurSept(effectif);
   return {
     ...club.tactique,
     systeme,
     tempo,
     rotation: "equilibre",
-    gardienVolant: club.reputation > 50,
-    sept: meilleurSept(effectif),
+    gardienVolant: club.reputation > 40,
+    sept,
+    specialistes: echangesProposes(effectif, sept),
   };
 }

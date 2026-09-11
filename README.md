@@ -45,7 +45,8 @@ dérivée de son effectif, en continu — il n'y a pas de curseur de difficulté
 | Fatigue | Soixante minutes pleines coûtent près de soixante points de condition |
 | Temps morts | Trois par match, deux par mi-temps, balle en main — et l'élan adverse remis à zéro |
 | Élan | Une équipe qui enchaîne les buts joue plus haut, jusqu'à ce qu'on la coupe |
-| Gardien volant | Sept contre six en fin de match, but vide sur chaque ballon intercepté |
+| Rotation attaque / défense | Les spécialistes se croisent à chaque changement de possession |
+| Gardien volant | Sept contre six pour la phase d'attaque, but vide sur chaque ballon intercepté |
 | Réussite du jour | Tirée au coup d'envoi, jamais affichée : un gardien est dedans ou à côté |
 | Gauchers | Un droitier à l'arrière droit tire depuis un angle fermé |
 
@@ -56,7 +57,7 @@ Mesuré au harnais : tenir son banc rapporte **1,5 but par match** et fait passe
 victoire de 41 % à 55 %.
 
 **Les décisions tactiques** — trois systèmes défensifs, trois rythmes de jeu, une consigne de
-rotation. Le système adverse déforme la répartition de vos tirs : un bloc bas (6-0) vous laisse
+rotation, les échanges attaque / défense. Le système adverse déforme la répartition de vos tirs : un bloc bas (6-0) vous laisse
 armer de loin mais ferme le pivot, une défense haute (3-2-1) étouffe les neuf mètres et renvoie
 le jeu à l'intérieur. Une équipe de gros arrières et une équipe de jeu intérieur n'ont donc pas
 le même adversaire idéal — et le rapport d'observation d'avant-match vous dit lequel vous avez
@@ -75,6 +76,7 @@ modification du moteur n'est considérée comme finie tant qu'il n'est pas vert.
 | Pas de stratégie dominante | Aucune des 9 combinaisons dans le trio de tête des 6 contextes testés |
 | Difficulté monotone | 8 adversaires de force croissante → 8 différences de buts décroissantes |
 | Réalisme statistique | Buts 26–32, réussite 55–62 %, exclusions 3–5, jets de 7 m 4–5 |
+| L'identité handball | Le sept contre six renverse des fins de match, la rotation attaque / défense rapporte |
 | Le banc pèse | Une rotation pilotée rapporte plus d'un but par match, règles des temps morts respectées |
 | Stabilité longue | *à écrire avec la bascule de saison (phase 4)* |
 | Reproductibilité | Même graine + même tactique → match identique au caractère près |
@@ -88,12 +90,17 @@ Mesures actuelles sur 500 matchs : **29,8 buts**, **60,5 % de réussite**, 48 ti
 avantage du terrain ≈ 1,7 but. Une saison complète des trois divisions (546 matchs) se simule
 en **2 secondes**.
 
-Deux écarts connus, mesurés et assumés :
+Les deux critères de sortie de la phase 3, mesurés :
 
-- **5 à 7 % de matchs nuls** contre 8–10 % dans un championnat réel.
-- L'écart entre le bon et le mauvais système défensif atteint **0,98 but** cumulé sur les deux
-  profils d'adversaire, là où la phase 3 en vise plus d'un. Le harnais interdit toute
-  régression sous 0,9 en attendant les spécialistes attaque / défense.
+- L'écart entre le bon et le mauvais système défensif atteint **1,01 but** cumulé sur les deux
+  profils d'adversaire. L'effet est net face au jeu intérieur (1,05 but pour le bloc bas) et
+  encore faible face aux gros arrières — c'est ce qu'il reste à creuser.
+- Le gardien volant, sorti dans les deux dernières minutes avec un à trois buts de retard, fait
+  passer la récolte de **0,26 à 0,33 point** sur les fins de match concernées : une fin sur
+  vingt change de camp.
+- La rotation attaque / défense rapporte **0,45 but** aux clubs qui ont les profils pour.
+
+Un écart connu et assumé : **5 à 7 % de matchs nuls** contre 8–10 % dans un championnat réel.
 
 ## Organisation du code
 
@@ -115,6 +122,7 @@ src/
 └── app/                 Écrans (App Router, composants client)
 scripts/mesurer.ts           Banc d'essai statistique
 scripts/mesurer-pilotage.ts  Ce que vaut le banc, levier par levier
+scripts/mesurer-phase3.ts    Les critères de sortie de la phase 3
 ```
 
 ## Où en est le projet
@@ -132,9 +140,11 @@ seul développeur »).
   de rotation avant le match ; temps morts, changements et consignes en direct pendant. Critère
   de sortie mesuré au harnais : le pilotage du banc rapporte 1,5 but par match, très au-dessus
   du but exigé.
-- **Phase 3 — l'identité handball.** Partielle. Exclusions au bon niveau, supériorité numérique
-  jouée, gardien volant, rareté des gauchers, réussite du jour des gardiens. Manquent les
-  spécialistes attaque / défense, et l'écart entre systèmes doit encore gagner 0,1 but.
+- **Phase 3 — l'identité handball.** Fait pour l'essentiel. Exclusions au bon niveau,
+  supériorité numérique jouée, sept contre six qui renverse des fins de match, spécialistes
+  attaque / défense qui tournent à chaque changement de possession, rareté des gauchers,
+  réussite du jour des gardiens. Reste à creuser : l'écart entre systèmes face à une équipe de
+  gros arrières.
 - **Phases 4 à 6 — temps long, marché, enjeux.** Pas commencées. Pas de bascule de saison, pas
   de transferts, pas de conseil d'administration : l'objectif affiché n'aurait aucune
   conséquence, il n'est donc pas affiché.

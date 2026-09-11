@@ -4,10 +4,12 @@ import { DIVISIONS_MODELE, NOMS, PRENOMS, type ModeleClub, type StyleClub } from
 import {
   ATTRIBUTS,
   POSTES,
+  POSTES_CHAMP,
   type Attributs,
   type CleAttribut,
   type Club,
   type Division,
+  type EchangeSpecialiste,
   type Joueur,
   type Main,
   type Monde,
@@ -34,6 +36,20 @@ const PLAN_EFFECTIF: Poste[] = [
 
 /** Bonus de niveau selon le rang au poste : titulaire, doublure, troisième. */
 const BONUS_RANG = [1.2, -0.2, -1.5];
+
+/**
+ * Le spécialiste défensif : un joueur qu'on recrute pour les six minutes de
+ * défense et qu'on sort dès qu'on attaque. Sans ce profil dans les effectifs,
+ * la rotation attaque / défense n'aurait personne à faire tourner.
+ */
+const PROFIL_DEFENSEUR: Partial<Record<CleAttribut, number>> = {
+  defense: 3.4,
+  blocage: 2.8,
+  agressivite: 1.6,
+  tir: -3.2,
+  duel: -1.2,
+  vitesse: -1,
+};
 
 /** Profil d'attributs dominants par poste, en points ajoutés à la base. */
 const PROFILS: Record<Poste, Partial<Record<CleAttribut, number>>> = {
@@ -136,6 +152,7 @@ function creerJoueur(
   saison: number,
   nommer: () => [string, string],
   numero: number,
+  defenseur: boolean,
 ): Joueur {
   const age = tirerAge(alea, rang);
   const main = tirerMain(alea, poste, reputation);
@@ -151,6 +168,7 @@ function creerJoueur(
       cible * accompli +
       (profil[cle] ?? 0) +
       (biaisStyle[cle] ?? 0) +
+      (defenseur ? (PROFIL_DEFENSEUR[cle] ?? 0) : 0) +
       (deltas[cle] ?? 0) +
       alea.gaussien(0, 1.35);
     attributs[cle] = brut;
@@ -200,6 +218,7 @@ export function tactiqueParDefaut(): Tactique {
     rotation: "equilibre",
     gardienVolant: false,
     sept: { GB: "", ArG: "", ArD: "", AiG: "", AiD: "", DC: "", PV: "" },
+    specialistes: [],
   };
 }
 
@@ -257,11 +276,26 @@ export function creerMonde(graine: number, saison = 2026): Monde {
       PLAN_EFFECTIF.forEach((poste, index) => {
         const rang = compteurs[poste] ?? 0;
         compteurs[poste] = rang + 1;
+        // Les doublures de l'axe central sont souvent des défenseurs de métier.
+        const defenseur =
+          rang >= 1 && (poste === "PV" || poste === "ArG" || poste === "ArD") && alea.chance(0.55);
         let numero = poste === "GB" ? [1, 12, 16][rang] ?? 30 : alea.entier(2, 45);
         while (numerosPris.has(numero)) numero = alea.entier(2, 99);
         numerosPris.add(numero);
         joueurs.push(
-          creerJoueur(alea, `${clubId}-j${index}`, clubId, poste, rang, mc.reputation, mc.style, saison, nommer, numero),
+          creerJoueur(
+            alea,
+            `${clubId}-j${index}`,
+            clubId,
+            poste,
+            rang,
+            mc.reputation,
+            mc.style,
+            saison,
+            nommer,
+            numero,
+            defenseur,
+          ),
         );
       });
 
@@ -293,7 +327,9 @@ export function creerMonde(graine: number, saison = 2026): Monde {
   penchants.forEach(({ club }, rang) => {
     const part = rang / penchants.length;
     club.tactique.systeme = part < 0.3 ? "3-2-1" : part < 0.7 ? "5-1" : "6-0";
-    club.tactique.sept = meilleurSept(monde.joueurs.filter((j) => j.clubId === club.id));
+    const effectif = monde.joueurs.filter((j) => j.clubId === club.id);
+    club.tactique.sept = meilleurSept(effectif);
+    club.tactique.specialistes = echangesProposes(effectif, club.tactique.sept);
   });
   return monde;
 }
@@ -372,6 +408,53 @@ export function septAutomatique(monde: Monde, clubId: string): Record<Poste, str
 export function valeurPour(j: Joueur, poste: Poste): number {
   const malus = j.poste === poste ? 0 : j.posteSecondaire === poste ? 1 : (j.poste === "GB") !== (poste === "GB") ? 6 : 2.5;
   return note(poste, j.attributs) - malus + j.forme * 0.15 + (j.condition - 80) * 0.012;
+}
+
+/** Valeur offensive brute d'un joueur, sur 20. */
+export function valeurAttaque(j: Joueur): number {
+  return j.attributs.tir * 0.6 + j.attributs.duel * 0.2 + j.attributs.puissance * 0.2;
+}
+
+/** Valeur défensive brute d'un joueur, sur 20. */
+export function valeurDefense(j: Joueur): number {
+  return j.attributs.defense * 0.7 + j.attributs.blocage * 0.3;
+}
+
+/**
+ * Propose les échanges attaque / défense que l'effectif permet vraiment : un
+ * titulaire nettement meilleur en attaque, une doublure nettement meilleure en
+ * défense au même poste. Sans profils complémentaires, la rotation ne vaut
+ * rien et la fonction ne propose rien — c'est une propriété de l'effectif, pas
+ * une case à cocher gratuite.
+ */
+export function echangesProposes(effectif: Joueur[], sept: Record<Poste, string>, maximum = 2): EchangeSpecialiste[] {
+  const parId = new Map(effectif.map((j) => [j.id, j]));
+  const titulaires = new Set(Object.values(sept));
+  const candidats: (EchangeSpecialiste & { gain: number })[] = [];
+
+  for (const poste of POSTES_CHAMP) {
+    const titulaire = parId.get(sept[poste]);
+    if (!titulaire) continue;
+    for (const doublure of effectif) {
+      if (doublure.poste !== poste || titulaires.has(doublure.id) || doublure.blessureJours > 0) continue;
+      const gainDefense = valeurDefense(doublure) - valeurDefense(titulaire);
+      const gainAttaque = valeurAttaque(titulaire) - valeurAttaque(doublure);
+      if (gainDefense < 1.2 || gainAttaque < 0.8) continue;
+      candidats.push({ attaquantId: titulaire.id, defenseurId: doublure.id, gain: gainDefense + gainAttaque });
+    }
+  }
+
+  candidats.sort((a, b) => b.gain - a.gain);
+  const retenus: EchangeSpecialiste[] = [];
+  const pris = new Set<string>();
+  for (const c of candidats) {
+    if (retenus.length >= maximum) break;
+    if (pris.has(c.attaquantId) || pris.has(c.defenseurId)) continue;
+    pris.add(c.attaquantId);
+    pris.add(c.defenseurId);
+    retenus.push({ attaquantId: c.attaquantId, defenseurId: c.defenseurId });
+  }
+  return retenus;
 }
 
 /**

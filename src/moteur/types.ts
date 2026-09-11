@@ -147,14 +147,23 @@ export type Tempo = "place" | "equilibre" | "rapide";
 /** Jusqu'où on fait tourner l'effectif pendant le match. */
 export type ConsigneRotation = "titulaires" | "equilibre" | "large";
 
+/**
+ * Un échange attaque / défense : le premier joue les phases offensives, le
+ * second les phases défensives, et ils se croisent à chaque changement de
+ * possession.
+ */
+export type EchangeSpecialiste = { attaquantId: string; defenseurId: string };
+
 export type Tactique = {
   systeme: SystemeDefensif;
   tempo: Tempo;
   rotation: ConsigneRotation;
-  /** Sortir le gardien pour jouer à 7 contre 6 quand on est mené en fin de match. */
+  /** Sortir le gardien en attaque quand on est mené dans les deux dernières minutes. */
   gardienVolant: boolean;
   /** Titulaire retenu pour chacun des sept postes. */
   sept: Record<Poste, string>;
+  /** Spécialistes qui tournent à chaque changement de possession. */
+  specialistes: EchangeSpecialiste[];
 };
 
 /* ------------------------------------------------------------------ monde */

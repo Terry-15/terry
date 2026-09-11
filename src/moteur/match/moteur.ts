@@ -42,6 +42,7 @@ import {
   EXCLUSIONS_AVANT_DISQUALIFICATION,
   FAUTE_BASE,
   FENETRE_GARDIEN_VOLANT,
+  RETARD_GARDIEN_VOLANT,
   INTERACTION,
   PART_CONTRE,
   PART_MANQUE,
@@ -52,6 +53,7 @@ import {
   PERTE_BASE,
   RECUPERATION_BANC_PAR_MINUTE,
   REBOND_OFFENSIF,
+  RISQUE_CHANGEMENT_IRREGULIER,
   RELACHEMENT_MAX,
   RELACHEMENT_PAR_BUT,
   RELACHEMENT_SEUIL,
@@ -124,6 +126,10 @@ type Cote = {
   elan: number;
   /** Banc tenu par un humain : le moteur n'y touche pas tout seul. */
   pilote: boolean;
+  /** Le sept contre six a déjà été annoncé dans le fil. */
+  gardienVolantAnnonce: boolean;
+  /** Nombre de rotations attaque / défense effectuées. */
+  echangesPhase: number;
 };
 
 function statsEquipeVides(): StatsEquipeMatch {
@@ -219,6 +225,8 @@ function creerCote(entree: EntreeEquipe, camp: Camp, alea: Aleatoire): Cote {
     bonusTempsMort: 0,
     serieAdverse: 0,
     elan: 0,
+    gardienVolantAnnonce: false,
+    echangesPhase: 0,
     pilote: false,
   };
 }
@@ -369,10 +377,22 @@ function rotation(cote: Cote, t: number, journal: ((e: Partial<EvenementMatch>) 
 
 /* ----------------------------------------------------------- gardien volant */
 
-function gererGardienVolant(cote: Cote, adverse: Cote, t: number, journal: ((e: Partial<EvenementMatch>) => void) | null) {
+/**
+ * Le sept contre six. Le gardien ne sort que pour la phase d'attaque et
+ * revient dès qu'on défend : c'est ainsi qu'on le joue réellement. Le risque
+ * n'est pas de défendre sans gardien pendant deux minutes, c'est de se faire
+ * prendre la balle et de la voir finir dans un but vide.
+ */
+function reglerGardienVolant(
+  cote: Cote,
+  adverse: Cote,
+  enAttaque: boolean,
+  t: number,
+  journal: ((e: Partial<EvenementMatch>) => void) | null,
+) {
   const retard = adverse.score - cote.score;
   const fenetre = t >= DUREE_MATCH - FENETRE_GARDIEN_VOLANT;
-  const voulu = cote.tactique.gardienVolant && fenetre && retard >= 1 && retard <= 4;
+  const voulu = cote.tactique.gardienVolant && fenetre && enAttaque && retard >= 1 && retard <= RETARD_GARDIEN_VOLANT;
   if (voulu === cote.gardienVolant) return;
 
   if (voulu && cote.gardien) {
@@ -387,8 +407,9 @@ function gererGardienVolant(cote: Cote, adverse: Cote, t: number, journal: ((e: 
     e.surTerrain = true;
     cote.champ.push({ id: septieme, poste: e.j.poste === "GB" ? "PV" : (e.j.poste as PosteChamp) });
     cote.gardienVolant = true;
-    if (journal) {
-      journal({ seconde: t, type: "gardienVolant", camp: cote.camp, texte: `${cote.club.abbr} sort son gardien : sept contre six` });
+    if (journal && !cote.gardienVolantAnnonce) {
+      cote.gardienVolantAnnonce = true;
+      journal({ seconde: t, type: "gardienVolant", camp: cote.camp, texte: `${cote.club.abbr} sort son gardien : sept contre six en attaque` });
     }
   } else if (!voulu && cote.gardienVolant) {
     const septieme = cote.champ.pop();
@@ -403,8 +424,57 @@ function gererGardienVolant(cote: Cote, adverse: Cote, t: number, journal: ((e: 
       cote.etats.get(gardien)!.surTerrain = true;
     }
     cote.gardienVolant = false;
-    if (journal) {
-      journal({ seconde: t, type: "gardienVolant", camp: cote.camp, texte: `${cote.club.abbr} remet son gardien` });
+  }
+}
+
+/**
+ * Les spécialistes attaque / défense, qui tournent à chaque changement de
+ * possession. C'est la mécanique la plus reconnaissable du handball moderne :
+ * un pivot défenseur entre pour les six minutes de défense, un tireur entre
+ * pour l'attaque. Le prix se paie sur les transitions rapides — s'ils partent
+ * en contre, le changement n'a pas lieu et on défend avec ses attaquants — et
+ * sur le changement irrégulier, deux minutes pour l'équipe.
+ */
+function reglerSpecialistes(
+  cote: Cote,
+  enAttaque: boolean,
+  t: number,
+  alea: Aleatoire,
+  journal: ((e: Partial<EvenementMatch>) => void) | null,
+) {
+  const paires = cote.tactique.specialistes;
+  if (!paires.length || cote.gardienVolant) return;
+
+  for (const paire of paires) {
+    const entrantId = enAttaque ? paire.attaquantId : paire.defenseurId;
+    const sortantId = enAttaque ? paire.defenseurId : paire.attaquantId;
+    const entrant = cote.etats.get(entrantId);
+    const sortant = cote.etats.get(sortantId);
+    if (!entrant || !sortant || entrant.disqualifie) continue;
+    if (!cote.banc.includes(entrantId)) continue;
+    const index = cote.champ.findIndex((place) => place.id === sortantId);
+    if (index < 0) continue;
+
+    const poste = cote.champ[index].poste;
+    cote.banc.splice(cote.banc.indexOf(entrantId), 1);
+    cote.banc.push(sortantId);
+    sortant.surTerrain = false;
+    entrant.surTerrain = true;
+    cote.champ[index] = { id: entrantId, poste };
+    cote.echangesPhase++;
+
+    // Changement irrégulier : le sortant n'a pas franchi la ligne à temps.
+    const rigueur = (entrant.j.attributs.discipline + sortant.j.attributs.discipline) / 2;
+    if (alea.chance(Math.max(0.0008, RISQUE_CHANGEMENT_IRREGULIER * (1 + (13 - rigueur) * 0.08)))) {
+      exclure(cote, t, alea, journal);
+      if (journal) {
+        journal({
+          seconde: t,
+          type: "exclusion",
+          camp: cote.camp,
+          texte: `${cote.club.abbr} — changement irrégulier, deux minutes`,
+        });
+      }
     }
   }
 }
@@ -600,8 +670,13 @@ export function avancerMatch(etat: EtatMatch, cible: number): void {
 
     finirExclusions(etat.D, cible, journal);
     finirExclusions(etat.E, cible, journal);
-    gererGardienVolant(etat.D, etat.E, cible, journal);
-    gererGardienVolant(etat.E, etat.D, cible, journal);
+    // Les changements de phase : ils n'ont pas lieu si la transition est trop
+    // rapide, ce qui est tout le risque d'une équipe qui fait tourner ses
+    // spécialistes.
+    reglerGardienVolant(attaque, defense, true, cible, journal);
+    if (!contre) reglerGardienVolant(defense, attaque, false, cible, journal);
+    reglerSpecialistes(attaque, true, cible, alea, journal);
+    if (!contre) reglerSpecialistes(defense, false, cible, alea, journal);
     rotation(attaque, cible, journal);
     rotation(defense, cible, journal);
     if (!attaque.pilote) tempsMortAutomatique(etat, attaque);
@@ -946,7 +1021,7 @@ function resoudrePossession(
     // But vide : seule une balle interceptée part de l'autre côté du terrain.
     if (att.gardienVolant && provoquee && alea.chance(BUT_VIDE)) {
       const marqueur = alea.choix(def.champ);
-      marquer(def, att, marqueur, t, alea, journal, "contre", `But ${def.club.abbr} — ${nomCourt(def.etats.get(marqueur.id)!.j)} dans le but vide`);
+      marquer(def, att, marqueur, t, journal, "contre", `But ${def.club.abbr} — ${nomCourt(def.etats.get(marqueur.id)!.j)} dans le but vide`);
       return { prochaineAttaque: att, contrePour: null };
     }
     const vitesseDef = moyenneChamp(def, "vitesse");
@@ -1038,7 +1113,7 @@ function tirer(
   if (def.gardien) def.etats.get(def.gardien)!.stats.tirsSubis++;
 
   if (alea.chance(p)) {
-    marquer(att, def, place, t, alea, journal, type);
+    marquer(att, def, place, t, journal, type);
     return { prochaineAttaque: def, contrePour: null };
   }
 
@@ -1101,7 +1176,7 @@ function tirerSeptMetres(
   if (alea.chance(p)) {
     att.stats.septMetresMarques++;
     e.stats.septMetresMarques++;
-    marquer(att, def, place, t, alea, journal, "sept");
+    marquer(att, def, place, t, journal, "sept");
   } else {
     if (def.gardien) {
       const g = def.etats.get(def.gardien)!;
@@ -1127,7 +1202,6 @@ function marquer(
   def: Cote,
   place: PlaceChamp,
   t: number,
-  alea: Aleatoire,
   journal: ((e: Partial<EvenementMatch>) => void) | null,
   type: TypeTir,
   texteForce?: string,
@@ -1145,7 +1219,7 @@ function marquer(
       seconde: t,
       type: "but",
       camp: att.camp,
-      texte: texteForce ?? texteBut(att, e.j, place.poste, type, alea),
+      texte: texteForce ?? texteBut(att, e.j, type, t),
     });
   }
 }
@@ -1158,8 +1232,16 @@ const FORMULES: Record<TypeTir, string[]> = {
   sept: ["transforme son jet de 7 m", "ne tremble pas sur penalty"],
 };
 
-function texteBut(att: Cote, j: Joueur, poste: Poste, type: TypeTir, alea: Aleatoire): string {
-  return `But ${att.club.abbr} — ${nomCourt(j)} ${alea.choix(FORMULES[type])}`;
+/**
+ * La formule est choisie sans tirage aléatoire : commenter un match ne doit pas
+ * consommer de hasard, sinon le match qu'on regarde n'est plus celui que le
+ * moteur aurait joué en silence — et deux mesures censées être comparables ne
+ * le sont plus.
+ */
+function texteBut(att: Cote, j: Joueur, type: TypeTir, t: number): string {
+  const formules = FORMULES[type];
+  const index = (Math.round(t) + j.nom.charCodeAt(0) + j.numero) % formules.length;
+  return `But ${att.club.abbr} — ${nomCourt(j)} ${formules[index]}`;
 }
 
 function feuille(D: Cote, E: Cote, evenements: EvenementMatch[]): FeuilleMatch {

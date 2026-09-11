@@ -7,7 +7,7 @@ import { usePartie } from "@/jeu/etat";
 import { monClub, monProchainMatch } from "@/jeu/partie";
 import { observer } from "@/jeu/observation";
 import { noteJoueur } from "@/moteur/attributs";
-import { valeurPour as valeurPoste } from "@/moteur/monde";
+import { echangesProposes, valeurAttaque, valeurDefense, valeurPour as valeurPoste } from "@/moteur/monde";
 import { SYSTEMES, TEMPOS } from "@/moteur/match/parametres";
 import {
   LIBELLES_POSTE,
@@ -128,7 +128,7 @@ export default function PageTactique() {
         </div>
         <div className="carte">
           <h2 className="titre-carte">Gardien volant</h2>
-          <p className="sous-titre mb-3">Sept contre six dans les cinq dernières minutes</p>
+          <p className="sous-titre mb-3">Sept contre six dans les deux dernières minutes</p>
           <label className="flex cursor-pointer items-start gap-3 text-sm">
             <input
               type="checkbox"
@@ -137,11 +137,97 @@ export default function PageTactique() {
               onChange={(e) => changer({ gardienVolant: e.target.checked })}
             />
             <span>
-              Sortir le gardien quand on est mené en fin de match. Un joueur de plus en attaque — et un but
-              vide à chaque ballon perdu.
+              Sortir le gardien pour la phase d&apos;attaque quand on est mené d&apos;un à trois buts dans les
+              deux dernières minutes. Un joueur de plus en attaque, et un but vide sur chaque ballon
+              intercepté. Mesuré au harnais : une fin de match renversée sur vingt.
             </span>
           </label>
         </div>
+      </section>
+
+      <section className="carte">
+        <h2 className="titre-carte">Rotation attaque / défense</h2>
+        <p className="sous-titre mb-4">
+          Les spécialistes se croisent à chaque changement de possession — sauf si l&apos;adversaire part en
+          contre-attaque, et alors on défend avec ses attaquants
+        </p>
+        {(() => {
+          const proposes = echangesProposes(effectif, tactique.sept, 4);
+          const actifs = new Set(tactique.specialistes.map((e) => `${e.attaquantId}|${e.defenseurId}`));
+          if (!proposes.length) {
+            return (
+              <p className="text-sm text-doux">
+                Aucun échange à proposer : vos doublures ne sont pas nettement meilleures en défense que vos
+                titulaires. C&apos;est une propriété de l&apos;effectif, pas un réglage — il faut recruter un
+                défenseur de métier.
+              </p>
+            );
+          }
+          return (
+            <ul className="space-y-2">
+              {proposes.map((echange) => {
+                const attaquant = idx.joueurParId.get(echange.attaquantId);
+                const defenseur = idx.joueurParId.get(echange.defenseurId);
+                if (!attaquant || !defenseur) return null;
+                const cle = `${echange.attaquantId}|${echange.defenseurId}`;
+                const actif = actifs.has(cle);
+                return (
+                  <li key={cle}>
+                    <label
+                      className={`flex cursor-pointer flex-wrap items-center gap-3 rounded-lg border p-3 transition-colors ${
+                        actif ? "border-accent bg-accent-doux" : "border-bordure bg-surface hover:border-accent"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 accent-[var(--accent)]"
+                        checked={actif}
+                        onChange={(e) =>
+                          agir((p, index) => {
+                            const c = index.clubParId.get(p.clubId)!;
+                            const liste = c.tactique.specialistes.filter(
+                              (x) => `${x.attaquantId}|${x.defenseurId}` !== cle,
+                            );
+                            c.tactique = {
+                              ...c.tactique,
+                              specialistes: e.target.checked ? [...liste, echange] : liste,
+                            };
+                          })
+                        }
+                      />
+                      <span className="puce">{LIBELLES_POSTE[attaquant.poste]}</span>
+                      <span className="text-sm">
+                        <b>
+                          {attaquant.prenom} {attaquant.nom}
+                        </b>{" "}
+                        en attaque
+                        <span className="font-mono text-[11px] text-doux">
+                          {" "}
+                          (tir {attaquant.attributs.tir}, déf {attaquant.attributs.defense})
+                        </span>
+                      </span>
+                      <span className="text-doux">↔</span>
+                      <span className="text-sm">
+                        <b>
+                          {defenseur.prenom} {defenseur.nom}
+                        </b>{" "}
+                        en défense
+                        <span className="font-mono text-[11px] text-doux">
+                          {" "}
+                          (tir {defenseur.attributs.tir}, déf {defenseur.attributs.defense})
+                        </span>
+                      </span>
+                      <span className="ml-auto font-mono text-[11px] text-doux">
+                        +{(valeurDefense(defenseur) - valeurDefense(attaquant)).toFixed(1)} en défense ·{" "}
+                        {(valeurAttaque(defenseur) - valeurAttaque(attaquant)).toFixed(1)} en attaque
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          );
+        })()}
       </section>
 
       <section className="carte">

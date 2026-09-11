@@ -243,8 +243,15 @@ export const ELAN_MAX = 0.075;
 /* ------------------------------------------------------------ divers réglages */
 
 export const AVANTAGE_DOMICILE = 0.048;
-/** Effet d'un joueur de plus (ou de moins) sur la réussite au tir. */
-export const EFFET_SUPERIORITE = 0.052;
+/**
+ * Effet d'un joueur de plus (ou de moins) sur la réussite au tir. Deux minutes
+ * d'exclusion coûtent ainsi environ un demi-but, ce qui correspond à ce qu'on
+ * observe, et rendent le sept contre six réellement jouable.
+ */
+export const EFFET_SUPERIORITE = 0.075;
+
+/** Probabilité qu'une rotation de spécialistes tourne au changement irrégulier. */
+export const RISQUE_CHANGEMENT_IRREGULIER = 0.004;
 /**
  * Relâchement : une équipe largement devant lève le pied et fait tourner,
  * celle qui court après prend des risques. Sans ce ressort, les écarts
@@ -270,11 +277,18 @@ export const EXCLUSIONS_AVANT_DISQUALIFICATION = 3;
  */
 export const USURE_PAR_MINUTE = 1.2;
 export const RECUPERATION_BANC_PAR_MINUTE = 1.3;
-/** Fenêtre de fin de match où le gardien volant devient envisageable. */
-export const FENETRE_GARDIEN_VOLANT = 300;
 /**
- * But vide : seule une balle réellement interceptée part au but vide, et il
- * faut encore la mettre depuis sa propre moitié de terrain. Punir toutes les
- * pertes de balle rendait le sept contre six suicidaire, ce qu'il n'est pas.
+ * Fenêtre de fin de match où le gardien volant devient envisageable, et retard
+ * maximal qui le justifie. Sorti trop tôt, il expose sans raison ; sorti dans
+ * les trois dernières minutes avec un ou trois buts de retard, il transforme
+ * des défaites en matchs nuls.
  */
-export const BUT_VIDE = 0.62;
+export const FENETRE_GARDIEN_VOLANT = 120;
+export const RETARD_GARDIEN_VOLANT = 3;
+/**
+ * But vide : part des pertes provoquées qui finissent dans le but vide quand
+ * le gardien est sorti. Toutes n'y finissent pas — il faut une interception
+ * propre, puis une balle mise depuis sa propre moitié de terrain. Punir chaque
+ * ballon perdu rendait le sept contre six suicidaire, ce qu'il n'est pas.
+ */
+export const BUT_VIDE = 0.38;
