@@ -136,7 +136,8 @@ describe("4. Pas de stratégie dominante", () => {
       d1.find((id) => idx.clubParId.get(id)!.style === "interieur" && idx.clubParId.get(id)!.reputation > 84)!,
     ];
 
-    let survivantes: Set<string> | null = null;
+    let survivantes: string[] = [];
+    let premierContexte = true;
     for (const adversaire of contextes) {
       const scores: { cle: string; v: number }[] = [];
       for (const tempo of TMP) {
@@ -153,10 +154,13 @@ describe("4. Pas de stratégie dominante", () => {
         }
       }
       scores.sort((a, b) => b.v - a.v);
-      const trio = new Set(scores.slice(0, 3).map((s) => s.cle));
-      survivantes = survivantes ? new Set([...survivantes].filter((c) => trio.has(c))) : trio;
+      const trio = scores.slice(0, 3).map((s) => s.cle);
+      survivantes = premierContexte ? trio : survivantes.filter((cle) => trio.includes(cle));
+      premierContexte = false;
     }
-    expect([...(survivantes ?? [])]).toEqual([]);
+    // Une combinaison qui reste dans le trio de tête des quatre contextes est
+    // une réponse universelle : le choix tactique n'en serait plus un.
+    expect(survivantes).toEqual([]);
   });
 
   it("le système défensif se choisit selon le profil offensif adverse", () => {

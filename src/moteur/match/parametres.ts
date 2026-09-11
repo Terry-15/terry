@@ -53,7 +53,7 @@ export const SYSTEMES: Record<SystemeDefensif, ParamsSysteme> = {
     defProche: -4.8,
     defLoin: 5.6,
     interception: 0.085,
-    faute: 1.4,
+    faute: 1.25,
     usure: 1.17,
   },
 };
@@ -156,11 +156,11 @@ export const SEUILS_ROTATION: Record<ConsigneRotation, number> = {
 
 /** Probabilité de base par type de tir, à qualités égales. */
 export const BASE_TIR: Record<TypeTir, number> = {
-  aile: 0.57,
-  neuf: 0.5,
-  six: 0.63,
-  contre: 0.77,
-  sept: 0.75,
+  aile: 0.555,
+  neuf: 0.485,
+  six: 0.615,
+  contre: 0.755,
+  sept: 0.745,
 };
 
 /** Sensibilité de la réussite à l'écart de qualité, par point d'attribut. */
@@ -197,13 +197,13 @@ export const PART_PROVOQUEE = 0.55;
 /* -------------------------------------------------------- contacts irréguliers */
 
 /** Probabilité de base d'un contact irrégulier sanctionné, par possession. */
-export const FAUTE_BASE = 0.2;
+export const FAUTE_BASE = 0.185;
 /** Répartition des sanctions : jet de 7 m seul, exclusion seule, les deux. */
-export const REPARTITION_FAUTE = { septSeul: 0.4, exclusionSeule: 0.34, lesDeux: 0.26 };
+export const REPARTITION_FAUTE = { septSeul: 0.46, exclusionSeule: 0.3, lesDeux: 0.24 };
 
 /* ------------------------------------------------------------ divers réglages */
 
-export const AVANTAGE_DOMICILE = 0.032;
+export const AVANTAGE_DOMICILE = 0.035;
 /** Effet d'un joueur de plus (ou de moins) sur la réussite au tir. */
 export const EFFET_SUPERIORITE = 0.052;
 /**

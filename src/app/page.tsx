@@ -1,230 +1,146 @@
+"use client";
+
 import Link from "next/link";
+import { useMemo, useState } from "react";
 
-import { GraphiqueAnneau } from "@/components/charts/anneau";
-import { GraphiqueBarres } from "@/components/charts/barres";
-import { GraphiquePareto } from "@/components/charts/pareto";
-import { GraphiqueTendance } from "@/components/charts/tendance";
-import { TableErreurs } from "@/components/table-erreurs";
-import { CarteKpi } from "@/components/ui/carte-kpi";
-import { Carte, EntetePage } from "@/components/ui/divers";
-import { EtiquetteStatutAction, EtiquetteTypeAction } from "@/components/ui/etiquettes";
-import { formatDate, formatEuros, formatNombre, joursDeRetard } from "@/lib/format";
-import {
-  calculerKpis,
-  parMois,
-  pareto,
-  repartitionGravite,
-  repartitionStatut,
-} from "@/lib/kpi";
-import { libelleGravite, libelleStatutErreur } from "@/lib/labels";
-import { depot } from "@/lib/repo";
+import { Ecusson } from "@/composants/ecusson";
+import { usePartie } from "@/jeu/etat";
+import { monClub } from "@/jeu/partie";
+import { creerMonde, forceClub, indexer } from "@/moteur/monde";
+import type { StyleClub } from "@/moteur/types";
 
-export const dynamic = "force-dynamic";
-
-const COULEURS_GRAVITE: Record<string, string> = {
-  mineure: "#10b981",
-  majeure: "#f59e0b",
-  critique: "#ef4444",
+const LIBELLE_STYLE: Record<StyleClub, string> = {
+  distance: "Gros arrières",
+  interieur: "Jeu intérieur",
+  equilibre: "Équilibré",
 };
 
-export default async function TableauDeBord() {
-  const d = depot();
-  const [erreurs, actions] = await Promise.all([d.listerErreurs(), d.listerActions()]);
+export default function Accueil() {
+  const { partie, idx, chargement, demarrer, abandonner } = usePartie();
+  const [manager, setManager] = useState("");
+  const [graine] = useState(() => Math.floor(Math.random() * 100000));
+  const [divisionActive, setDivisionActive] = useState("d1");
 
-  const kpis = calculerKpis(erreurs, actions);
-  const enRetard = actions.filter((a) => joursDeRetard(a.echeance) > 0 && (a.statut === "a_faire" || a.statut === "en_cours"));
-  const dernieres = erreurs.slice(0, 8);
+  // Le monde de prévisualisation est celui qui sera joué : même graine.
+  const apercu = useMemo(() => {
+    const monde = creerMonde(graine);
+    const index = indexer(monde);
+    return { monde, index };
+  }, [graine]);
+
+  if (chargement) {
+    return <p className="text-doux">Chargement de la sauvegarde…</p>;
+  }
+
+  if (partie && idx) {
+    const club = monClub(partie, idx);
+    const journees = partie.saison.calendrier.length;
+    return (
+      <div className="space-y-5">
+        <section className="carte flex flex-wrap items-center gap-5">
+          <Ecusson club={club} taille={64} />
+          <div className="flex-1">
+            <h1 className="font-titre text-2xl font-bold">{club.nom}</h1>
+            <p className="text-doux">
+              {partie.manager} · {idx.divisionParId.get(club.divisionId)?.nom} · journée{" "}
+              {Math.min(partie.saison.journeeCourante + 1, journees)} sur {journees}
+            </p>
+          </div>
+          <Link href="/club" className="bouton-principal">
+            Reprendre la partie
+          </Link>
+        </section>
+        <section className="carte">
+          <h2 className="titre-carte">Recommencer</h2>
+          <p className="sous-titre mb-3">La sauvegarde actuelle sera définitivement perdue</p>
+          <button
+            className="bouton"
+            onClick={() => {
+              if (confirm("Abandonner la partie en cours ? La sauvegarde sera effacée.")) abandonner();
+            }}
+          >
+            Abandonner et choisir un autre club
+          </button>
+        </section>
+      </div>
+    );
+  }
+
+  const division = apercu.monde.divisions.find((d) => d.id === divisionActive)!;
 
   return (
-    <>
-      <EntetePage
-        titre="Tableau de bord"
-        sousTitre="Pilotage de la boucle d'amélioration continue : déclarer, analyser, agir, vérifier."
-        actions={
-          <Link href="/erreurs/nouvelle" className="bouton-primaire">
-            + Déclarer une erreur
-          </Link>
-        }
-      />
+    <div className="space-y-6">
+      <section className="carte">
+        <p className="sous-titre">Prototype jouable</p>
+        <h1 className="mt-1 font-titre text-3xl font-bold">Demi-Centre</h1>
+        <p className="mt-2 max-w-2xl text-doux">
+          Trois divisions, 42 clubs, 756 joueurs : un monde fictif généré une fois et conservé. Chaque
+          match — le vôtre comme ceux des autres clubs — passe par le même moteur, possession par
+          possession.
+        </p>
+      </section>
 
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <CarteKpi
-          libelle="Fiches ouvertes"
-          valeur={kpis.ouvertes}
-          aide={`sur ${kpis.total} au total`}
+      <section className="carte">
+        <h2 className="titre-carte">Votre nom</h2>
+        <p className="sous-titre mb-3">Il apparaîtra sur la fiche du club</p>
+        <input
+          className="champ max-w-sm"
+          placeholder="Nom du manager"
+          value={manager}
+          onChange={(e) => setManager(e.target.value)}
+          maxLength={40}
         />
-        <CarteKpi
-          libelle="Déclarées sur 30 j"
-          valeur={kpis.declarees30j}
-          evolution={kpis.evolution30j}
-          aide="vs 30 j précédents"
-        />
-        <CarteKpi
-          libelle="Critiques ouvertes"
-          valeur={kpis.critiquesOuvertes}
-          ton={kpis.critiquesOuvertes > 0 ? "critique" : "positif"}
-          aide="à traiter en priorité"
-        />
-        <CarteKpi
-          libelle="Actions en retard"
-          valeur={kpis.actionsEnRetard}
-          ton={kpis.actionsEnRetard > 0 ? "attention" : "positif"}
-          aide={`sur ${kpis.actionsOuvertes} ouvertes`}
-        />
-        <CarteKpi
-          libelle="Taux de clôture"
-          valeur={formatNombre(kpis.tauxCloture)}
-          unite="%"
-          ton={kpis.tauxCloture >= 70 ? "positif" : "attention"}
-          aide="fiches retenues clôturées"
-        />
-        <CarteKpi
-          libelle="Délai moyen de clôture"
-          valeur={formatNombre(kpis.delaiMoyenCloture)}
-          unite="j"
-          aide="détection → clôture"
-        />
-        <CarteKpi
-          libelle="Efficacité confirmée"
-          valeur={formatNombre(kpis.tauxEfficacite)}
-          unite="%"
-          ton={kpis.tauxEfficacite >= 80 ? "positif" : "attention"}
-          hausseDefavorable={false}
-          aide="actions contrôlées"
-        />
-        <CarteKpi
-          libelle="Coût cumulé"
-          valeur={formatEuros(kpis.coutTotal)}
-          aide="non-qualité estimée"
-        />
-      </div>
+      </section>
 
-      <div className="mt-6 grid gap-4 lg:grid-cols-3">
-        <Carte
-          titre="Évolution mensuelle"
-          aide="Déclarations et clôtures sur 12 mois glissants"
-          className="lg:col-span-2"
-        >
-          <GraphiqueTendance points={parMois(erreurs, 12)} />
-        </Carte>
+      <section className="carte">
+        <h2 className="titre-carte">Choisissez un club</h2>
+        <p className="sous-titre mb-4">
+          La force est calculée sur l&apos;effectif réellement généré — pas un curseur de difficulté
+        </p>
 
-        <Carte titre="Répartition par gravité">
-          <GraphiqueAnneau
-            valeurCentre={String(erreurs.length)}
-            parts={repartitionGravite(erreurs).map((p) => ({
-              libelle: libelleGravite[p.cle],
-              valeur: p.valeur,
-              couleur: COULEURS_GRAVITE[p.cle],
-            }))}
-          />
-        </Carte>
-      </div>
+        <div className="mb-4 flex flex-wrap gap-2">
+          {apercu.monde.divisions.map((d) => (
+            <button
+              key={d.id}
+              onClick={() => setDivisionActive(d.id)}
+              className={`rounded-full border px-4 py-1.5 font-titre text-[13px] font-semibold transition-colors ${
+                d.id === divisionActive
+                  ? "border-accent bg-accent text-fond"
+                  : "border-bordure bg-surface text-doux hover:border-accent hover:text-accent"
+              }`}
+            >
+              {d.nom}
+            </button>
+          ))}
+        </div>
 
-      <div className="mt-4 grid gap-4 lg:grid-cols-3">
-        <Carte
-          titre="Pareto des catégories"
-          aide="Les causes cumulant 80 % des fiches sont les priorités d'action"
-          className="lg:col-span-2"
-        >
-          <GraphiquePareto lignes={pareto(erreurs, "categorie")} />
-        </Carte>
-
-        <Carte titre="Avancement du traitement">
-          <GraphiqueBarres
-            barres={repartitionStatut(erreurs).map((p) => ({
-              libelle: libelleStatutErreur[p.cle],
-              valeur: p.valeur,
-              couleur:
-                p.cle === "cloturee"
-                  ? "bg-emerald-500"
-                  : p.cle === "rejetee"
-                    ? "bg-zinc-400"
-                    : "bg-indigo-500",
-            }))}
-          />
-        </Carte>
-      </div>
-
-      <div className="mt-4 grid items-start gap-4 lg:grid-cols-2">
-        <Carte
-          titre="Actions en retard"
-          aide="Échéance dépassée, action non terminée"
-          actions={
-            <Link href="/actions?retard=1" className="text-xs lien">
-              Tout voir
-            </Link>
-          }
-        >
-          {enRetard.length ? (
-            <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {enRetard.slice(0, 6).map((a) => (
-                <li key={a.id} className="flex items-start justify-between gap-3 py-2.5">
-                  <div className="min-w-0">
-                    <Link href={`/erreurs/${a.erreur_id}`} className="lien text-sm font-medium">
-                      {a.titre}
-                    </Link>
-                    <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                      {a.erreur_reference} · {a.pilote} · échéance {formatDate(a.echeance)}
-                    </p>
-                  </div>
-                  <span className="etiquette shrink-0 border-red-200 bg-red-50 text-red-700 dark:border-red-400/30 dark:bg-red-500/10 dark:text-red-300">
-                    +{joursDeRetard(a.echeance)} j
+        <ul className="grid gap-2 sm:grid-cols-2">
+          {division.clubIds.map((clubId) => {
+            const club = apercu.index.clubParId.get(clubId)!;
+            const force = forceClub(apercu.index.effectifParClub.get(clubId)!);
+            return (
+              <li key={clubId}>
+                <button
+                  onClick={() => demarrer(clubId, manager, graine)}
+                  className="flex w-full items-center gap-3 rounded-lg border border-bordure bg-surface p-3 text-left transition-colors hover:border-accent"
+                >
+                  <Ecusson club={club} taille={38} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate font-semibold">{club.nom}</span>
+                    <span className="sous-titre block">
+                      {club.ville} · {LIBELLE_STYLE[club.style]}
+                    </span>
                   </span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="py-6 text-center text-sm text-emerald-600 dark:text-emerald-400">
-              Aucune action en retard. 👌
-            </p>
-          )}
-        </Carte>
-
-        <Carte
-          titre="Prochaines échéances"
-          aide="Actions ouvertes dont l'échéance approche"
-        >
-          {(() => {
-            const prochaines = actions
-              .filter((a) => (a.statut === "a_faire" || a.statut === "en_cours") && joursDeRetard(a.echeance) <= 0)
-              .slice(0, 6);
-            return prochaines.length ? (
-              <ul className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                {prochaines.map((a) => (
-                  <li key={a.id} className="flex items-start justify-between gap-3 py-2.5">
-                    <div className="min-w-0">
-                      <Link href={`/erreurs/${a.erreur_id}`} className="lien text-sm font-medium">
-                        {a.titre}
-                      </Link>
-                      <p className="mt-0.5 text-xs text-zinc-500 dark:text-zinc-400">
-                        {a.pilote} · pour le {formatDate(a.echeance)}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 gap-1.5">
-                      <EtiquetteTypeAction valeur={a.type} />
-                      <EtiquetteStatutAction valeur={a.statut} />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="py-6 text-center text-sm text-zinc-500">Aucune action planifiée.</p>
+                  <span className="text-right">
+                    <span className="block font-titre text-lg font-bold tabular-nums">{force.toFixed(0)}</span>
+                    <span className="sous-titre block">Force</span>
+                  </span>
+                </button>
+              </li>
             );
-          })()}
-        </Carte>
-      </div>
-
-      <Carte
-        titre="Dernières fiches déclarées"
-        className="mt-4"
-        actions={
-          <Link href="/erreurs" className="text-xs lien">
-            Toutes les fiches
-          </Link>
-        }
-      >
-        <TableErreurs erreurs={dernieres} compact />
-      </Carte>
-    </>
+          })}
+        </ul>
+      </section>
+    </div>
   );
 }

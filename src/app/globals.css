@@ -1,24 +1,59 @@
 @import "tailwindcss";
 
-@theme inline {
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-}
-
+/*
+ * Demi-Centre — charte froide, lisible en salle comme sur canapé.
+ * Tout passe par des variables : un seul endroit à toucher pour le thème.
+ */
 :root {
-  --fond: #f6f7f9;
+  --fond: #eef2f8;
   --surface: #ffffff;
-  --texte: #18181b;
-  --bordure: #e4e4e7;
+  --surface-2: #f3f6fc;
+  --bordure: #d8e0ec;
+  --texte: #16213a;
+  --texte-doux: #5a6884;
+  --accent: #0e8fa3;
+  --accent-2: #4457c9;
+  --accent-doux: #e3f4f6;
+  --bon: #1f8f6a;
+  --moyen: #b45309;
+  --mauvais: #c23b7a;
+  --ombre: 0 1px 2px rgb(20 30 55 / 0.06), 0 10px 26px -14px rgb(20 30 55 / 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --fond: #09090b;
-    --surface: #131316;
-    --texte: #ededed;
-    --bordure: #27272a;
+    --fond: #0a1120;
+    --surface: #111a2c;
+    --surface-2: #16213a;
+    --bordure: #25344f;
+    --texte: #e8edf6;
+    --texte-doux: #96a4bf;
+    --accent: #3fd0dd;
+    --accent-2: #8098ff;
+    --accent-doux: #122e39;
+    --bon: #3ddba3;
+    --moyen: #e3a93b;
+    --mauvais: #ef6fb0;
+    --ombre: 0 1px 2px rgb(0 0 0 / 0.35), 0 14px 34px -16px rgb(0 0 0 / 0.6);
   }
+}
+
+@theme inline {
+  --color-fond: var(--fond);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-bordure: var(--bordure);
+  --color-texte: var(--texte);
+  --color-doux: var(--texte-doux);
+  --color-accent: var(--accent);
+  --color-accent-2: var(--accent-2);
+  --color-accent-doux: var(--accent-doux);
+  --color-bon: var(--bon);
+  --color-moyen: var(--moyen);
+  --color-mauvais: var(--mauvais);
+  --font-titre: "Chakra Petch", "Arial Narrow", ui-sans-serif, sans-serif;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Consolas, monospace;
 }
 
 html {
@@ -31,54 +66,77 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+h1, h2, h3, h4 {
+  font-family: var(--font-titre);
+  font-weight: 600;
+  text-wrap: balance;
+}
+
 @layer components {
   .carte {
-    @apply rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900;
+    @apply rounded-xl border border-bordure bg-surface p-5;
+    box-shadow: var(--ombre);
   }
 
-  .titre-section {
-    @apply text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100;
+  .titre-carte {
+    @apply font-titre text-[15px] font-semibold;
   }
 
-  .etiquette {
-    @apply inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium whitespace-nowrap;
-  }
-
-  .champ {
-    @apply w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900
-      placeholder:text-zinc-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/20 focus:outline-none
-      dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:placeholder:text-zinc-600;
-  }
-
-  .libelle-champ {
-    @apply mb-1.5 block text-xs font-medium text-zinc-600 dark:text-zinc-400;
+  .sous-titre {
+    @apply font-mono text-[10.5px] uppercase tracking-[0.06em] text-doux;
   }
 
   .bouton {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-sm
-      font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-bordure
+      bg-surface px-3.5 py-2 text-sm font-medium transition-colors hover:border-accent hover:text-accent
+      disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  .bouton-primaire {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3.5 py-2
-      text-sm font-medium text-white transition-colors hover:bg-indigo-500
-      disabled:cursor-not-allowed disabled:opacity-60;
+  .bouton-principal {
+    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg bg-accent px-4 py-2.5
+      font-titre text-sm font-semibold tracking-wide text-fond uppercase transition-opacity hover:opacity-90
+      disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  .bouton-secondaire {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg border border-zinc-300
-      bg-white px-3.5 py-2 text-sm font-medium text-zinc-700 transition-colors hover:bg-zinc-50
-      disabled:cursor-not-allowed disabled:opacity-60
-      dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800;
+  .puce {
+    @apply inline-flex items-center gap-1 rounded-full border border-bordure bg-surface-2 px-2.5 py-0.5
+      font-mono text-[10px] whitespace-nowrap text-doux uppercase;
   }
 
-  .bouton-discret {
-    @apply inline-flex cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-1.5 text-sm
-      font-medium text-zinc-500 transition-colors hover:bg-zinc-100 hover:text-zinc-800
-      dark:hover:bg-zinc-800 dark:hover:text-zinc-100;
+  .champ {
+    @apply w-full rounded-lg border border-bordure bg-surface px-3 py-2 text-sm text-texte
+      focus:border-accent focus:ring-2 focus:ring-[color-mix(in_srgb,var(--accent)_30%,transparent)] focus:outline-none;
   }
 
-  .lien {
-    @apply text-indigo-600 hover:underline dark:text-indigo-400;
+  .tuile {
+    @apply rounded-lg border border-bordure bg-surface-2 px-3 py-2 text-center;
+  }
+
+  .tuile b {
+    @apply block font-titre text-lg leading-tight tabular-nums;
+  }
+
+  .tuile span {
+    @apply block font-mono text-[9px] tracking-wide text-doux uppercase;
+  }
+
+  .tableau {
+    @apply w-full border-collapse text-sm;
+  }
+
+  .tableau th {
+    @apply border-b border-bordure px-2.5 py-2 text-left font-mono text-[9.5px] tracking-wide text-doux uppercase;
+  }
+
+  .tableau td {
+    @apply border-b border-bordure px-2.5 py-2 text-left;
+  }
+
+  .tableau tr:last-child td {
+    @apply border-b-0;
+  }
+
+  .num {
+    @apply text-right font-mono text-[12.5px] tabular-nums;
   }
 }
