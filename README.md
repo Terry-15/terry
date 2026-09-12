@@ -34,6 +34,14 @@ conservés. Chaque joueur a 18 attributs, tous lus par le moteur, un potentiel, 
 main dominante, un contrat, une condition, un moral et une forme. La force d'un club est
 dérivée de son effectif, en continu — il n'y a pas de curseur de difficulté.
 
+**Le temps long** — à la fin de chaque saison, le monde entier vieillit : deux montées et deux
+descentes par frontière de division, les joueurs prennent un an, les jeunes comblent une part
+de leur potentiel d'autant plus grande qu'ils ont joué, les trentenaires perdent leurs jambes,
+certains raccrochent, le centre de formation alimente les fins de banc. Le palmarès et
+l'historique se conservent. Dix saisons enchaînées tiennent sans dérive : l'âge moyen bouge
+d'un an, la distribution des niveaux d'une demi-note, et aucun club n'a plus de 60 % des
+titres.
+
 **Le match** — une boucle de possessions horodatées sur 60 minutes :
 
 | Mécanique | Ce qu'elle change |
@@ -78,8 +86,8 @@ modification du moteur n'est considérée comme finie tant qu'il n'est pas vert.
 | Réalisme statistique | Buts 26–32, réussite 55–62 %, exclusions 3–5, jets de 7 m 4–5 |
 | L'identité handball | Le sept contre six renverse des fins de match, la rotation attaque / défense rapporte |
 | Le banc pèse | Une rotation pilotée rapporte plus d'un but par match, règles des temps morts respectées |
-| Stabilité longue | *à écrire avec la bascule de saison (phase 4)* |
-| Reproductibilité | Même graine + même tactique → match identique au caractère près |
+| Stabilité longue | Dix saisons : âge moyen ±1 an, niveaux stables, effectifs à 18, pas de club à plus de 60 % des titres |
+| Reproductibilité | Même graine + même tactique → match identique, que le match soit commenté ou non |
 
 Le lot de référence est joué comme le jeu le joue vraiment : bancs tenus par les adjoints, y
 compris pour les clubs non contrôlés. Calibrer sur des matchs que personne ne jouera n'aurait
@@ -113,6 +121,7 @@ src/
 │   ├── noms.ts          Univers fictif : 42 clubs, prénoms et noms
 │   ├── monde.ts         Génération du monde persistant, force d'un club
 │   ├── saison.ts        Calendrier, journées, classement, statistiques
+│   ├── evolution.ts     Bascule de saison : vieillissement, formation, palmarès
 │   ├── match/
 │   │   ├── parametres.ts  Toutes les constantes calibrées
 │   │   └── moteur.ts      La boucle de possession
@@ -123,6 +132,8 @@ src/
 scripts/mesurer.ts           Banc d'essai statistique
 scripts/mesurer-pilotage.ts  Ce que vaut le banc, levier par levier
 scripts/mesurer-phase3.ts    Les critères de sortie de la phase 3
+scripts/mesurer-dix-saisons.ts  Dix saisons enchaînées, sans dérive
+scripts/faire-sauvegarde.ts  Une sauvegarde avec une saison jouée, pour tester l'interface
 ```
 
 ## Où en est le projet
@@ -145,9 +156,14 @@ seul développeur »).
   attaque / défense qui tournent à chaque changement de possession, rareté des gauchers,
   réussite du jour des gardiens. Reste à creuser : l'écart entre systèmes face à une équipe de
   gros arrières.
-- **Phases 4 à 6 — temps long, marché, enjeux.** Pas commencées. Pas de bascule de saison, pas
-  de transferts, pas de conseil d'administration : l'objectif affiché n'aurait aucune
-  conséquence, il n'est donc pas affiché.
+- **Phase 4 — le temps long.** Fait. Bascule de saison, vieillissement, courbes de progression
+  et de déclin, retraites, centre de formation, montées et descentes entre les trois divisions,
+  historique et palmarès. Critère de sortie mesuré : dix saisons enchaînées, âge moyen stable à
+  1,1 an près, niveau moyen à une demi-note près, 551 retraites, 81 éclosions, aucun club
+  au-dessus de 30 % des titres.
+- **Phases 5 et 6 — marché et enjeux.** Pas commencées. Pas de transferts entre clubs, pas de
+  scouting, pas de conseil d'administration : l'objectif de classement est affiché en fin de
+  saison, mais il n'a encore aucune conséquence.
 
 Le monde, les clubs et les joueurs sont **100 % fictifs**. C'est un choix assumé : aucune
 licence, aucun risque juridique, et un monde dont on maîtrise entièrement l'équilibre.

@@ -87,6 +87,11 @@ export default function PageClub() {
               <sup>e</sup>.
             </p>
           )}
+          {partie.saison.terminee ? (
+            <Link href="/saison" className="bouton-principal mt-5 w-full">
+              Voir le bilan de la saison
+            </Link>
+          ) : null}
         </div>
 
         <div className="carte">

@@ -9,7 +9,8 @@ import {
   type Rencontre,
   type Saison,
 } from "../moteur/saison";
-import type { Camp, FeuilleMatch, Monde } from "../moteur/types";
+import { passerALaSaisonSuivante } from "../moteur/evolution";
+import type { BilanSaison, Camp, FeuilleMatch, Monde } from "../moteur/types";
 import { tactiqueIA } from "./ia";
 import { simulerAvecAdjoints } from "./pilote";
 
@@ -38,16 +39,23 @@ export type Partie = {
   creeeLe: string;
 };
 
-export function nouvellePartie(clubId: string, manager: string, graine = Date.now() % 100000): Partie {
-  const monde = creerMonde(graine);
-  const saison = creerSaison(monde, graine);
-  const club = monde.clubs.find((c) => c.id === clubId)!;
-  const division = monde.divisions.find((d) => d.id === club.divisionId)!;
-  const rangAttendu =
+/** Place que la réputation du club lui promet dans sa division. */
+export function rangAttendu(monde: Monde, clubId: string): number {
+  const club = monde.clubs.find((c) => c.id === clubId);
+  if (!club) return 0;
+  const division = monde.divisions.find((d) => d.id === club.divisionId);
+  if (!division) return 0;
+  return (
     division.clubIds
       .map((id) => monde.clubs.find((c) => c.id === id)!)
       .sort((a, b) => b.reputation - a.reputation)
-      .findIndex((c) => c.id === clubId) + 1;
+      .findIndex((c) => c.id === clubId) + 1
+  );
+}
+
+export function nouvellePartie(clubId: string, manager: string, graine = Date.now() % 100000): Partie {
+  const monde = creerMonde(graine);
+  const saison = creerSaison(monde, graine);
 
   return {
     version: VERSION_SAUVEGARDE,
@@ -58,7 +66,7 @@ export function nouvellePartie(clubId: string, manager: string, graine = Date.no
     saison,
     dernierMatch: null,
     dernierMatchVu: true,
-    rangAttendu,
+    rangAttendu: rangAttendu(monde, clubId),
     creeeLe: new Date().toISOString(),
   };
 }
@@ -189,6 +197,25 @@ function indexRencontre(partie: Partie, journee: number, rencontre: Rencontre): 
   return (partie.saison.calendrier[journee] ?? []).findIndex(
     (r) => r.domicileId === rencontre.domicileId && r.exterieurId === rencontre.exterieurId,
   );
+}
+
+/**
+ * Clôt la saison et ouvre la suivante : classements figés, montées et
+ * descentes, vieillissement du monde entier, centre de formation. Renvoie le
+ * bilan à afficher.
+ */
+export function terminerLaSaison(partie: Partie): BilanSaison {
+  const bilan = passerALaSaisonSuivante(partie.monde, partie.saison, partie.graine + partie.monde.saison);
+  partie.saison = creerSaison(partie.monde, partie.graine + partie.monde.saison);
+  partie.dernierMatch = null;
+  partie.dernierMatchVu = true;
+  partie.rangAttendu = rangAttendu(partie.monde, partie.clubId);
+  return bilan;
+}
+
+/** Le bilan de la dernière saison terminée, s'il y en a un. */
+export function dernierBilan(partie: Partie): BilanSaison | null {
+  return partie.monde.historique.length ? partie.monde.historique[partie.monde.historique.length - 1] : null;
 }
 
 /* ------------------------------------------------------------------- vues */

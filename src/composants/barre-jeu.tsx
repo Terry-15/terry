@@ -14,6 +14,7 @@ const LIENS = [
   { href: "/match", libelle: "Match" },
   { href: "/calendrier", libelle: "Calendrier" },
   { href: "/classement", libelle: "Classement" },
+  { href: "/saison", libelle: "Saison" },
 ];
 
 export function BarreJeu() {

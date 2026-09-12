@@ -141,20 +141,33 @@ export function niveauCible(reputation: number): number {
   return 7.6 + (reputation / 100) * 8.4;
 }
 
-function creerJoueur(
-  alea: Aleatoire,
-  id: string,
-  clubId: string | null,
-  poste: Poste,
-  rang: number,
-  reputation: number,
-  style: StyleClub,
-  saison: number,
-  nommer: () => [string, string],
-  numero: number,
-  defenseur: boolean,
-): Joueur {
-  const age = tirerAge(alea, rang);
+export type OptionsJoueur = {
+  id: string;
+  clubId: string | null;
+  poste: Poste;
+  /** Rang au poste : 0 titulaire, 1 doublure, 2 troisième. */
+  rang: number;
+  reputation: number;
+  style: StyleClub;
+  saison: number;
+  nommer: () => [string, string];
+  numero: number;
+  /** Profil de spécialiste défensif. */
+  defenseur?: boolean;
+  /** Âge imposé, pour un joueur issu du centre de formation. */
+  age?: number;
+};
+
+/**
+ * La seule fabrique de joueurs du jeu. Le centre de formation et le
+ * recrutement passent par elle : c'est ce qui garantit qu'un joueur créé à la
+ * dixième saison est au même barème qu'un joueur de la première, et donc que
+ * le niveau du championnat ne dérive pas.
+ */
+export function creerJoueur(alea: Aleatoire, o: OptionsJoueur): Joueur {
+  const { id, clubId, poste, rang, reputation, style, saison, nommer, numero } = o;
+  const defenseur = o.defenseur === true;
+  const age = o.age ?? tirerAge(alea, rang);
   const main = tirerMain(alea, poste, reputation);
   const profil = PROFILS[poste];
   const biaisStyle = BIAIS_STYLE[style][poste] ?? {};
@@ -237,7 +250,7 @@ export function penchantDefensif(effectif: Joueur[]): number {
   return haut - bas;
 }
 
-function creerNommeur(alea: Aleatoire) {
+export function creerNommeur(alea: Aleatoire) {
   const utilises = new Set<string>();
   return (): [string, string] => {
     for (let essai = 0; essai < 400; essai++) {
@@ -283,19 +296,18 @@ export function creerMonde(graine: number, saison = 2026): Monde {
         while (numerosPris.has(numero)) numero = alea.entier(2, 99);
         numerosPris.add(numero);
         joueurs.push(
-          creerJoueur(
-            alea,
-            `${clubId}-j${index}`,
+          creerJoueur(alea, {
+            id: `${clubId}-j${index}`,
             clubId,
             poste,
             rang,
-            mc.reputation,
-            mc.style,
+            reputation: mc.reputation,
+            style: mc.style,
             saison,
             nommer,
             numero,
             defenseur,
-          ),
+          }),
         );
       });
 
@@ -317,7 +329,7 @@ export function creerMonde(graine: number, saison = 2026): Monde {
     divisions.push({ id: modele.id, nom: modele.nom, niveau: modele.niveau, clubIds });
   }
 
-  const monde: Monde = { version: VERSION_MONDE, graine, saison, divisions, clubs, joueurs };
+  const monde: Monde = { version: VERSION_MONDE, graine, saison, divisions, clubs, joueurs, historique: [] };
   // Le système maison se décide par comparaison : le tiers le plus agressif
   // défend haut, le tiers le plus massif défend bas. Un championnat où tout le
   // monde défend pareil viderait de son sens la moitié des choix du joueur.

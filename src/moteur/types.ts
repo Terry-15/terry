@@ -176,6 +176,46 @@ export type Monde = {
   divisions: Division[];
   clubs: Club[];
   joueurs: Joueur[];
+  /** Saisons terminées, de la plus ancienne à la plus récente. */
+  historique: BilanSaison[];
+};
+
+/* -------------------------------------------------------------- historique */
+
+export type LigneBilan = {
+  clubId: string;
+  nom: string;
+  rang: number;
+  points: number;
+  difference: number;
+};
+
+export type BilanDivision = {
+  divisionId: string;
+  nom: string;
+  classement: LigneBilan[];
+  /** Clubs montés depuis cette division, et descendus dans la suivante. */
+  promus: string[];
+  relegues: string[];
+  meilleurButeur: { nom: string; clubAbbr: string; buts: number } | null;
+};
+
+export type MouvementEffectif = {
+  clubId: string;
+  /** Joueurs partis à la retraite, avec leur âge. */
+  retraites: { nom: string; age: number; poste: Poste }[];
+  /** Jeunes issus du centre de formation. */
+  eclosions: { nom: string; age: number; poste: Poste; potentiel: number }[];
+  /** Joueurs recrutés pour combler l'effectif. */
+  arrivees: { nom: string; age: number; poste: Poste }[];
+  /** Les plus fortes progressions et les plus nettes baisses de la saison. */
+  progressions: { nom: string; poste: Poste; avant: number; apres: number }[];
+};
+
+export type BilanSaison = {
+  annee: number;
+  divisions: BilanDivision[];
+  mouvements: MouvementEffectif[];
 };
 
 /* ------------------------------------------------------------------ match */

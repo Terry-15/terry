@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 
 import { borner } from "../aleatoire";
+import { note } from "../attributs";
 import {
   apercuMatch,
   avancerMatch,
@@ -21,6 +22,7 @@ import {
 import { creerMemoirePilote, PAS_PILOTAGE, PILOTE_ATTENTIF, piloterBanc, simulerAvecAdjoints } from "../../jeu/pilote";
 import { DUREE_MATCH } from "../match/parametres";
 import { creerMonde, disponibles, echangesProposes, forceClub, indexer } from "../monde";
+import { palmares, passerALaSaisonSuivante } from "../evolution";
 import { classement, creerSaison, jouerJournee } from "../saison";
 import { ATTRIBUTS, POSTES, type FeuilleMatch, type SystemeDefensif, type Tempo } from "../types";
 
@@ -523,7 +525,72 @@ describe("8. Le banc pèse sur le résultat", () => {
     }
   });
 
-  it.todo("dix saisons enchaînées sans dérive — attend la bascule de saison (phase 4)");
+});
+
+describe("10. Stabilité longue", () => {
+  it("dix saisons enchaînées sans dérive", () => {
+    // Critère de sortie de la phase 4. Le monde entier doit vieillir sans
+    // s'effondrer : ni inflation des niveaux, ni équipe de vétérans, ni club
+    // qui absorbe le championnat.
+    const m = creerMonde(31337);
+    const ages: number[] = [];
+    const niveaux: number[] = [];
+    let retraites = 0;
+    let eclosions = 0;
+    let promotions = 0;
+
+    for (let s = 0; s < 10; s++) {
+      const i = indexer(m);
+      const saison = creerSaison(m, m.graine + s);
+      while (!saison.terminee) jouerJournee(m, saison, i);
+      const bilan = passerALaSaisonSuivante(m, saison, m.graine + s);
+
+      retraites += bilan.mouvements.reduce((n, mv) => n + mv.retraites.length, 0);
+      // Une éclosion : un joueur qui gagne plus d'une note en une saison.
+      eclosions += bilan.mouvements.reduce(
+        (n, mv) => n + mv.progressions.filter((p) => p.apres - p.avant >= 1.2).length,
+        0,
+      );
+      promotions += bilan.divisions.reduce((n, d) => n + d.promus.length, 0);
+
+      ages.push(m.joueurs.reduce((t, j) => t + j.age, 0) / m.joueurs.length);
+      niveaux.push(m.joueurs.reduce((t, j) => t + note(j.poste, j.attributs), 0) / m.joueurs.length);
+
+      // Les effectifs restent jouables et les tactiques pointent sur des
+      // joueurs qui existent encore.
+      for (const club of m.clubs) {
+        const effectif = m.joueurs.filter((j) => j.clubId === club.id);
+        expect(effectif.length).toBe(18);
+        expect(effectif.filter((j) => j.poste === "GB").length).toBeGreaterThanOrEqual(2);
+        for (const poste of POSTES) {
+          const titulaire = club.tactique.sept[poste];
+          expect(effectif.some((j) => j.id === titulaire)).toBe(true);
+        }
+      }
+    }
+
+    const ecartAge = Math.max(...ages) - Math.min(...ages);
+    const ecartNiveau = Math.max(...niveaux) - Math.min(...niveaux);
+    const titres = palmares(m);
+    console.log(
+      `    âge moyen ${ages[0].toFixed(1)} → ${ages[9].toFixed(1)} (amplitude ${ecartAge.toFixed(1)} an) · ` +
+        `niveau ${niveaux[0].toFixed(2)} → ${niveaux[9].toFixed(2)} · ${retraites} retraites · ${eclosions} éclosions`,
+    );
+    console.log(
+      `    club le plus titré : ${titres[0].nom}, ${titres[0].titres} titres sur 10 · ${promotions} montées`,
+    );
+
+    expect(ecartAge).toBeLessThan(1.6);
+    expect(ecartNiveau).toBeLessThan(1);
+    expect(retraites).toBeGreaterThan(100);
+    expect(eclosions).toBeGreaterThan(30);
+    // Deux montées par frontière de division et par saison.
+    expect(promotions).toBe(10 * 2 * 2);
+    expect(titres[0].titres).toBeLessThanOrEqual(6);
+    // Et l'âge reste crédible : personne à 45 ans, des jeunes qui arrivent.
+    expect(Math.max(...m.joueurs.map((j) => j.age))).toBeLessThan(40);
+    expect(Math.min(...m.joueurs.map((j) => j.age))).toBeLessThanOrEqual(19);
+  });
 });
 
 describe("9. Reproductibilité", () => {
