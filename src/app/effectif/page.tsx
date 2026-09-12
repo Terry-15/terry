@@ -6,11 +6,13 @@ import { BarreAttribut, Jauge, minutes } from "@/composants/affichage";
 import { InviteNouvellePartie } from "@/composants/invite";
 import { Radar } from "@/composants/radar";
 import { usePartie } from "@/jeu/etat";
-import { monClub } from "@/jeu/partie";
+import { contexteProgression, monClub } from "@/jeu/partie";
+import { progressionAttendue } from "@/moteur/evolution";
+import type { ContexteProgression } from "@/moteur/evolution";
 import { clesUtiles, noteJoueur } from "@/moteur/attributs";
 import { LIBELLES_POSTE, POSTES, type Joueur, type Poste } from "@/moteur/types";
 
-type Tri = "poste" | "note" | "age" | "buts" | "condition";
+type Tri = "poste" | "note" | "age" | "buts" | "condition" | "implication" | "noteMatch";
 
 export default function PageEffectif() {
   const { partie, idx, version } = usePartie();
@@ -39,6 +41,10 @@ export default function PageEffectif() {
           return (stats[b.id]?.buts ?? 0) - (stats[a.id]?.buts ?? 0);
         case "condition":
           return a.condition - b.condition;
+        case "implication":
+          return b.implication - a.implication;
+        case "noteMatch":
+          return moyenneNote(stats[b.id]) - moyenneNote(stats[a.id]);
         default:
           return POSTES.indexOf(a.poste) - POSTES.indexOf(b.poste) || noteJoueur(b) - noteJoueur(a);
       }
@@ -77,6 +83,8 @@ export default function PageEffectif() {
               <option value="age">Âge</option>
               <option value="buts">Buts</option>
               <option value="condition">Condition</option>
+              <option value="implication">Implication</option>
+              <option value="noteMatch">Note de match</option>
             </select>
           </span>
         </div>
@@ -95,6 +103,8 @@ export default function PageEffectif() {
                 <th className="num">M</th>
                 <th className="num">Buts</th>
                 <th className="num">Min</th>
+                <th className="num">Note match</th>
+                <th className="num">Impl.</th>
               </tr>
             </thead>
             <tbody>
@@ -126,6 +136,12 @@ export default function PageEffectif() {
                     <td className="num">{s?.matchs ?? 0}</td>
                     <td className="num">{s?.buts ?? 0}</td>
                     <td className="num text-doux">{s ? minutes(s.secondes) : "—"}</td>
+                    <td className={`num font-semibold ${teinte(moyenneNote(s))}`}>
+                      {s && s.matchs > 0 ? (s.noteCumulee / s.matchs).toFixed(2) : "—"}
+                    </td>
+                    <td className={`num ${j.semainesEntrainement ? teinte(j.implication) : "text-doux"}`}>
+                      {j.semainesEntrainement ? j.implication.toFixed(1) : "—"}
+                    </td>
                   </tr>
                 );
               })}
@@ -134,7 +150,9 @@ export default function PageEffectif() {
         </div>
       </section>
 
-      {joueurOuvert ? <FicheJoueur joueur={joueurOuvert} stats={stats[joueurOuvert.id]} /> : null}
+      {joueurOuvert ? (
+        <FicheJoueur joueur={joueurOuvert} stats={stats[joueurOuvert.id]} contexte={contexteProgression(partie, idx, joueurOuvert)} />
+      ) : null}
     </div>
   );
 }
@@ -142,9 +160,21 @@ export default function PageEffectif() {
 function FicheJoueur({
   joueur,
   stats,
+  contexte,
 }: {
   joueur: Joueur;
-  stats?: { matchs: number; buts: number; tirs: number; secondes: number; arrets: number; tirsSubis: number; exclusions: number; pertes: number };
+  stats?: {
+    matchs: number;
+    buts: number;
+    tirs: number;
+    secondes: number;
+    arrets: number;
+    tirsSubis: number;
+    exclusions: number;
+    pertes: number;
+    noteCumulee: number;
+  };
+  contexte: ContexteProgression;
 }) {
   const cles = clesUtiles(joueur.poste);
   const valeurs = cles.map((c) => joueur.attributs[c]);
@@ -181,6 +211,18 @@ function FicheJoueur({
           </div>
           <dl className="space-y-1 text-sm">
             <Detail terme="Potentiel" valeur={`${joueur.potentiel.toFixed(1)} / 20`} />
+            <Detail
+              terme="Note de match"
+              valeur={stats && stats.matchs > 0 ? `${(stats.noteCumulee / stats.matchs).toFixed(2)} / 10` : "—"}
+            />
+            <Detail
+              terme="Implication"
+              valeur={joueur.semainesEntrainement ? `${joueur.implication.toFixed(1)} / 10 sur ${joueur.semainesEntrainement} séances` : "—"}
+            />
+            <Detail
+              terme="Saison attendue"
+              valeur={`${progressionAttendue(joueur, contexte) >= 0 ? "+" : ""}${progressionAttendue(joueur, contexte).toFixed(2)} de note`}
+            />
             <Detail terme="Forme" valeur={["très mauvaise", "mauvaise", "moyenne", "correcte", "bonne", "très bonne", "en feu"][joueur.forme + 3]} />
             <Detail terme="Salaire" valeur={`${joueur.salaire.toLocaleString("fr-FR")} € / mois`} />
             <Detail terme="Contrat" valeur={`jusqu'en ${joueur.saisonFinContrat}`} />
@@ -201,6 +243,16 @@ function FicheJoueur({
       </div>
     </section>
   );
+}
+
+function moyenneNote(s?: { matchs: number; noteCumulee: number }) {
+  return s && s.matchs > 0 ? s.noteCumulee / s.matchs : 0;
+}
+
+function teinte(note: number) {
+  if (note >= 7) return "text-bon";
+  if (note > 0 && note < 5) return "text-mauvais";
+  return "";
 }
 
 function Detail({ terme, valeur }: { terme: string; valeur: string }) {

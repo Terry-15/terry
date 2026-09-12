@@ -11,6 +11,7 @@ const LIENS = [
   { href: "/club", libelle: "Club" },
   { href: "/effectif", libelle: "Effectif" },
   { href: "/tactique", libelle: "Tactique" },
+  { href: "/entrainement", libelle: "Entraînement" },
   { href: "/match", libelle: "Match" },
   { href: "/calendrier", libelle: "Calendrier" },
   { href: "/classement", libelle: "Classement" },

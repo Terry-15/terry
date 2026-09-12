@@ -20,8 +20,10 @@ npm run dev          # http://localhost:3000
 Choisissez un club parmi les 42, jouez la saison journée après journée.
 
 ```bash
-npm run harnais      # les invariants du moteur (≈ 20 s)
-npm run mesurer      # banc d'essai : 500 matchs, matrice tactique, saison complète
+npm run harnais            # les invariants du moteur : 27 assertions (≈ 70 s)
+npm run mesurer            # banc d'essai : 500 matchs, matrice tactique, saison complète
+npm run mesurer:tactique   # les trois leviers de match : zone, engagement, individuelle
+npm run mesurer:saisons 10 # dix saisons enchaînées
 ```
 
 ## Ce que fait le moteur
@@ -64,16 +66,44 @@ arment de loin, on sort le gardien à deux minutes de la fin. Ou on confie tout 
 Mesuré au harnais : tenir son banc rapporte **1,5 but par match** et fait passer le taux de
 victoire de 41 % à 55 %.
 
-**Les décisions tactiques** — trois systèmes défensifs, trois rythmes de jeu, une consigne de
-rotation, les échanges attaque / défense. Le système adverse déforme la répartition de vos tirs : un bloc bas (6-0) vous laisse
-armer de loin mais ferme le pivot, une défense haute (3-2-1) étouffe les neuf mètres et renvoie
-le jeu à l'intérieur. Une équipe de gros arrières et une équipe de jeu intérieur n'ont donc pas
-le même adversaire idéal — et le rapport d'observation d'avant-match vous dit lequel vous avez
-en face.
+**Les décisions tactiques** — six leviers, tous réglables avant le match et en direct :
+
+| Levier | Ce qu'il change | Ce qu'il coûte |
+| --- | --- | --- |
+| Système défensif | 6-0, 5-1 ou 3-2-1 : déforme la répartition des tirs adverses | Un bloc bas laisse armer de loin, une défense haute ouvre l'intérieur |
+| Rythme de jeu | Durée des possessions, contre-attaques, repli | Jouer placé contre une défense haute, c'est perdre le ballon |
+| Zone d'attaque | Jeu équilibré, intérieur, tirs à distance, ailes : redistribue vos tirs poste par poste | Chercher le pivot contre un bloc bas ne rapporte rien |
+| Engagement du bloc | Prudente, normale, engagée : ballons récupérés | Une exclusion et un jet de 7 m de plus par cran |
+| Marquage individuel | Sort un tireur adverse du match | Un défenseur hors du bloc, et les six autres respirent |
+| Rotation attaque / défense | Les spécialistes se croisent à chaque possession | Un changement irrégulier de temps en temps |
+
+Aucun de ces leviers n'est un bonus à cocher : chacun se choisit contre l'adversaire, et le
+mauvais choix coûte des buts. Le rapport d'observation d'avant-match dit ce qu'on a en face —
+d'où ils tirent, quel système leur fait mal, quelle zone chercher contre le leur, et qui vaut
+la peine d'être pris en individuelle.
+
+**L'entraînement** — une séance par semaine, avant le match : un axe de travail parmi six
+(physique, tir, bloc défensif, jeu collectif, gardiens, récupération) et une intensité parmi
+trois. Ce qu'on travaille progresse près de trois fois plus vite que le reste ; l'intensité se
+paie en fraîcheur le jour du match et en blessures. Chaque joueur reçoit une **note
+d'implication sur 10** à chaque séance — elle ne se règle pas, elle vient de sa discipline, de
+son moral, de son âge et de ce qu'il lui reste à prouver.
+
+**La progression d'un joueur** — trois entrées, toutes lisibles sur sa fiche, aucune en
+coulisses :
+
+1. la marge qui lui reste avant son **potentiel** ;
+2. son **implication** moyenne à l'entraînement, sur 10 ;
+3. ce qu'il fait en match : minutes jouées et **note de match sur 10**, calculée à partir de sa
+   ligne de statistiques (efficacité au tir comparée à l'attendu de son poste, ballons gagnés
+   et perdus, contres, exclusions, pourcentage d'arrêts pour un gardien).
+
+Un talent qui ne joue pas et s'entraîne mal reste à son niveau. Un joueur moyen très appliqué
+finit par gratter sa marge. L'écran d'entraînement affiche le calcul, terme par terme.
 
 ## Le harnais
 
-`npm run harnais` vérifie huit familles d'invariants sur des milliers de matchs. Aucune
+`npm run harnais` vérifie dix familles d'invariants — 27 assertions sur des milliers de matchs. Aucune
 modification du moteur n'est considérée comme finie tant qu'il n'est pas vert.
 
 | Invariant | Assertion |
@@ -82,6 +112,9 @@ modification du moteur n'est considérée comme finie tant qu'il n'est pas vert.
 | Temps de jeu | Total = 420 min moins le temps en infériorité ; aucun joueur hors [0, 60] |
 | Bornes | Attributs dans [1, 20] ; condition et moral dans [0, 100] sur une saison entière |
 | Pas de stratégie dominante | Aucune des 9 combinaisons dans le trio de tête des 6 contextes testés |
+| Zone d'attaque | Armer de loin bat le jeu intérieur contre un bloc bas d'au moins 1 but, et l'inverse contre une défense haute |
+| Engagement du bloc | L'optimum s'inverse selon l'adversaire ; exclusions et ballons récupérés montent avec chaque cran |
+| Marquage individuel | Le tireur marqué perd plus d'un tiers de ses buts ; viser le bon homme bat viser un comparse |
 | Difficulté monotone | 8 adversaires de force croissante → 8 différences de buts décroissantes |
 | Réalisme statistique | Buts 26–32, réussite 55–62 %, exclusions 3–5, jets de 7 m 4–5 |
 | L'identité handball | Le sept contre six renverse des fins de match, la rotation attaque / défense rapporte |
@@ -93,8 +126,8 @@ Le lot de référence est joué comme le jeu le joue vraiment : bancs tenus par 
 compris pour les clubs non contrôlés. Calibrer sur des matchs que personne ne jouera n'aurait
 pas de sens.
 
-Mesures actuelles sur 500 matchs : **29,8 buts**, **60,5 % de réussite**, 48 tirs,
-3,4 exclusions, 4,5 jets de 7 m, 11,5 pertes de balle dont 6,3 provoquées, 57 possessions,
+Mesures actuelles sur 500 matchs : **28,2 buts**, **59,2 % de réussite**, 47,6 tirs,
+3,8 exclusions, 4,4 jets de 7 m, 11,9 pertes de balle dont 6,6 provoquées, 57,3 possessions,
 avantage du terrain ≈ 1,7 but. Une saison complète des trois divisions (546 matchs) se simule
 en **2 secondes**.
 
@@ -108,7 +141,27 @@ Les deux critères de sortie de la phase 3, mesurés :
   vingt change de camp.
 - La rotation attaque / défense rapporte **0,45 but** aux clubs qui ont les profils pour.
 
-Un écart connu et assumé : **5 à 7 % de matchs nuls** contre 8–10 % dans un championnat réel.
+Les trois leviers de match ajoutés ensuite, mesurés de la même façon
+(`npm run mesurer:tactique`) :
+
+- **Zone d'attaque** : contre un bloc bas, armer de neuf mètres rapporte **2,9 buts** de plus
+  que chercher le pivot ; contre une défense haute, chercher le pivot en rapporte **4,6** de
+  plus que d'armer. Les trois zones spécialisées sont chacune optimales dans au moins un des
+  neuf contextes mesurés.
+- **Engagement du bloc** : monter sur une équipe qui ne tient pas le ballon vaut **+0,4 but**
+  d'écart, monter sur un collectif propre en coûte **0,9**. Chaque cran ajoute environ une
+  exclusion et 1,2 jet de 7 m concédé, et rapporte 1,2 ballon récupéré.
+- **Marquage individuel** : le tireur visé passe de 4,8 à 1,5 but par match. Contre une attaque
+  concentrée, l'individuelle fait baisser le score adverse de **0,2 à 0,3 but** ; se tromper
+  d'homme le fait monter de **0,3 à 0,5**. C'est le seul levier qui exige une information
+  d'observation pour être rentable.
+
+Un adjoint laissé seul ne réoriente pas la zone d'attaque : mesure faite, un adjoint qui
+l'aligne sur la défense d'en face fait monter la réussite du lot de référence à 62,6 %,
+au-dessus de ce qu'on observe en handball. Lire la défense adverse reste un gain du banc
+humain.
+
+Un écart connu et assumé : **5,4 % de matchs nuls** contre 8–10 % dans un championnat réel.
 
 ## Organisation du code
 
@@ -122,6 +175,8 @@ src/
 │   ├── monde.ts         Génération du monde persistant, force d'un club
 │   ├── saison.ts        Calendrier, journées, classement, statistiques
 │   ├── evolution.ts     Bascule de saison : vieillissement, formation, palmarès
+│   ├── entrainement.ts  Séance de la semaine, implication, fraîcheur, blessures
+│   ├── notation.ts      La note de match sur 10, à partir de la ligne de statistiques
 │   ├── match/
 │   │   ├── parametres.ts  Toutes les constantes calibrées
 │   │   └── moteur.ts      La boucle de possession
@@ -132,6 +187,7 @@ src/
 scripts/mesurer.ts           Banc d'essai statistique
 scripts/mesurer-pilotage.ts  Ce que vaut le banc, levier par levier
 scripts/mesurer-phase3.ts    Les critères de sortie de la phase 3
+scripts/mesurer-tactique.ts  Les trois leviers de match : zone, engagement, individuelle
 scripts/mesurer-dix-saisons.ts  Dix saisons enchaînées, sans dérive
 scripts/faire-sauvegarde.ts  Une sauvegarde avec une saison jouée, pour tester l'interface
 ```
@@ -156,11 +212,17 @@ seul développeur »).
   attaque / défense qui tournent à chaque changement de possession, rareté des gauchers,
   réussite du jour des gardiens. Reste à creuser : l'écart entre systèmes face à une équipe de
   gros arrières.
+- **Phase 3 bis — la profondeur de match et d'entraînement.** Fait. Trois leviers tactiques de
+  plus (zone d'attaque, engagement du bloc, marquage individuel), tous mesurés et tous
+  réglables en direct ; une séance d'entraînement hebdomadaire avec six axes et trois
+  intensités ; une note de match sur 10 par joueur, une note d'implication sur 10 par séance,
+  et une progression qui se lit entièrement sur la fiche du joueur.
 - **Phase 4 — le temps long.** Fait. Bascule de saison, vieillissement, courbes de progression
   et de déclin, retraites, centre de formation, montées et descentes entre les trois divisions,
   historique et palmarès. Critère de sortie mesuré : dix saisons enchaînées, âge moyen stable à
   1,1 an près, niveau moyen à une demi-note près, 551 retraites, 81 éclosions, aucun club
-  au-dessus de 30 % des titres.
+  au-dessus de 50 % des titres. La dérive de niveau sur dix saisons est de 0,66 point : un
+  remplaçant arrive au niveau du partant, à 6 % près.
 - **Phases 5 et 6 — marché et enjeux.** Pas commencées. Pas de transferts entre clubs, pas de
   scouting, pas de conseil d'administration : l'objectif de classement est affiché en fin de
   saison, mais il n'a encore aucune conséquence.

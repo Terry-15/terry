@@ -61,6 +61,7 @@ const RIEN: ReglagesPilote = {
   tempsMorts: false,
   ajusterDefense: false,
   ajusterRythme: false,
+  ajusterZone: false,
   changerGardien: false,
   finDeMatch: false,
   jouerLesExclusions: false,

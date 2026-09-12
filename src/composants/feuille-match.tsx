@@ -99,7 +99,10 @@ export function FeuilleDeMatch({
 
       <section className="carte">
         <h2 className="titre-carte">Vos joueurs</h2>
-        <p className="sous-titre mb-3">Temps de jeu et rendement</p>
+        <p className="sous-titre mb-3">
+          Temps de jeu, statistiques, et la note de match qui en découle — c&apos;est elle qui nourrira leur
+          progression en fin de saison
+        </p>
         <div className="overflow-x-auto">
           <table className="tableau min-w-[560px]">
             <thead>
@@ -112,6 +115,7 @@ export function FeuilleDeMatch({
                 <th className="num">Arrêts</th>
                 <th className="num">Pertes</th>
                 <th className="num">2 min</th>
+                <th className="num">Note</th>
               </tr>
             </thead>
             <tbody>
@@ -127,6 +131,13 @@ export function FeuilleDeMatch({
                     <td className="num">{l.arrets || ""}</td>
                     <td className="num">{l.pertes}</td>
                     <td className="num">{l.exclusions || ""}</td>
+                    <td
+                      className={`num font-semibold ${
+                        l.note >= 7 ? "text-bon" : l.note > 0 && l.note < 5 ? "text-mauvais" : ""
+                      }`}
+                    >
+                      {l.secondes > 0 ? l.note.toFixed(1) : "—"}
+                    </td>
                   </tr>
                 ))}
             </tbody>

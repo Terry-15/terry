@@ -35,6 +35,8 @@ export type ReglagesPilote = {
   ajusterDefense: boolean;
   /** Adapter son rythme au système défensif que l'adversaire montre sur le terrain. */
   ajusterRythme: boolean;
+  /** Adapter la zone d'attaque au système défensif adverse. */
+  ajusterZone: boolean;
   /** Changer de gardien si le sien passe à côté de son match. */
   changerGardien: boolean;
   /** Jouer la fin de match : gardien volant et rythme adapté au score. */
@@ -60,6 +62,11 @@ export const PILOTE_ATTENTIF: ReglagesPilote = {
   tempsMorts: true,
   ajusterDefense: false,
   ajusterRythme: true,
+  // Laissée au manager : mesure faite, un adjoint qui aligne aussi la zone
+  // d'attaque sur la défense d'en face fait monter la réussite du lot de
+  // référence à 62,6 %, au-dessus de ce qu'on observe en handball. Lire la
+  // défense adverse et réorienter l'attaque reste donc un gain du banc humain.
+  ajusterZone: false,
   changerGardien: false,
   finDeMatch: false,
   jouerLesExclusions: true,
@@ -111,6 +118,7 @@ export function piloterBanc(etat: EtatMatch, camp: Camp, reglages: ReglagesPilot
 
   if (reglages.tempsMorts) gererTempsMort(etat, camp, moi, adverse, vue);
   if (reglages.ajusterRythme) ajusterRythmeAuSysteme(etat, camp, moi, adverse);
+  if (reglages.ajusterZone) ajusterZoneAuSysteme(etat, camp, moi, adverse);
   if (reglages.ajusterDefense && vue.t >= DUREE_MI_TEMPS && !memoire.derniereMiTempsTraitee) {
     memoire.derniereMiTempsTraitee = true;
     ajusterTactique(etat, camp, { systeme: systemeContre(adverse) });
@@ -167,6 +175,15 @@ function gererTempsMort(etat: EtatMatch, camp: Camp, moi: ApercuCote, adverse: A
 function ajusterRythmeAuSysteme(etat: EtatMatch, camp: Camp, moi: ApercuCote, adverse: ApercuCote) {
   const voulu = adverse.systeme === "6-0" ? "place" : adverse.systeme === "3-2-1" ? "rapide" : "equilibre";
   if (moi.tempo !== voulu) ajusterTactique(etat, camp, { tempo: voulu });
+}
+
+/**
+ * Où chercher le tir, selon la défense d'en face : on arme de loin contre un
+ * bloc bas, on entre dedans contre une défense haute, on écarte contre un 5-1.
+ */
+function ajusterZoneAuSysteme(etat: EtatMatch, camp: Camp, moi: ApercuCote, adverse: ApercuCote) {
+  const voulu = adverse.systeme === "6-0" ? "distance" : adverse.systeme === "3-2-1" ? "pivot" : "ailes";
+  if (moi.attaque !== voulu) ajusterTactique(etat, camp, { attaque: voulu });
 }
 
 /** Le système qui fait le plus mal au profil de tir réellement observé. */

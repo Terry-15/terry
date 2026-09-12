@@ -101,9 +101,12 @@ export type ContexteProgression = {
  * Aucune n'est décorative : un talent qui ne joue pas et s'entraîne mal reste
  * à son niveau, et un joueur moyen très appliqué finit par gratter sa marge.
  */
-export function faireProgresser(j: Joueur, ctx: ContexteProgression, alea: Aleatoire): { avant: number; apres: number } {
-  const avant = note(j.poste, j.attributs);
-  const marge = j.potentiel - avant;
+/**
+ * Les trois parts qui décident de la progression, chacune entre -1 et 1,5.
+ * Exportées telles quelles : la fiche du joueur affiche exactement ce que le
+ * moteur calcule, sans version « pédagogique » qui mentirait.
+ */
+export function partsProgression(ctx: ContexteProgression) {
   // Une saison pleine, c'est environ 900 minutes pour un titulaire.
   const partJeu = borner(ctx.minutes / 900, 0, 1.2);
   const partImplication = borner((ctx.implication - 5.5) / 2.5, -1, 1);
@@ -115,6 +118,28 @@ export function faireProgresser(j: Joueur, ctx: ContexteProgression, alea: Aleat
   // appliqué progresse six fois plus vite qu'un remplaçant dilettante.
   const elan =
     Math.max(0, 0.10 + 0.26 * partJeu + 0.26 * partImplication + 0.14 * partNote) * ctx.rendement;
+  return { partJeu, partImplication, partNote, elan };
+}
+
+/**
+ * Ce qu'un joueur devrait gagner ou perdre sur la saison, en points de note.
+ * C'est l'espérance de `faireProgresser`, sans le tirage aléatoire : de quoi
+ * annoncer une tendance sur une fiche, jamais une promesse.
+ */
+export function progressionAttendue(j: Joueur, ctx: ContexteProgression): number {
+  const { elan, partImplication } = partsProgression(ctx);
+  const marge = Math.max(0, j.potentiel - note(j.poste, j.attributs));
+  if (j.age <= 23) return marge * elan;
+  if (j.age <= 28) return marge * elan * 0.45 * 0.9;
+  // Le déclin porte sur quatre attributs physiques, moins l'expérience gagnée.
+  const force = j.age <= 31 ? 0.5 - partImplication * 0.12 : 0.8 + (j.age - 32) * 0.08 - partImplication * 0.12;
+  return -Math.min(1, Math.max(0, force)) * 0.45;
+}
+
+export function faireProgresser(j: Joueur, ctx: ContexteProgression, alea: Aleatoire): { avant: number; apres: number } {
+  const avant = note(j.poste, j.attributs);
+  const marge = j.potentiel - avant;
+  const { partImplication, elan } = partsProgression(ctx);
 
   if (j.age <= 23) {
     appliquerGain(j, Math.max(0, marge) * elan * alea.entre(0.6, 1.4), alea, ctx.clesTravaillees);

@@ -8,11 +8,13 @@ import { monClub, monProchainMatch } from "@/jeu/partie";
 import { observer } from "@/jeu/observation";
 import { noteJoueur } from "@/moteur/attributs";
 import { echangesProposes, valeurAttaque, valeurDefense, valeurPour as valeurPoste } from "@/moteur/monde";
-import { SYSTEMES, TEMPOS } from "@/moteur/match/parametres";
+import { AGRESSIVITES, ATTAQUES, SYSTEMES, TEMPOS } from "@/moteur/match/parametres";
 import {
   LIBELLES_POSTE,
   POSTES,
+  type AgressiviteDefensive,
   type ConsigneRotation,
+  type FocusOffensif,
   type Poste,
   type SystemeDefensif,
   type Tempo,
@@ -107,6 +109,86 @@ export default function PageTactique() {
               onClick={() => changer({ tempo: cle })}
             />
           ))}
+        </div>
+      </section>
+
+      <section className="carte">
+        <h2 className="titre-carte">Zone d&apos;attaque</h2>
+        <p className="sous-titre mb-4">
+          {rapport
+            ? `${rapport.nom} défend en ${rapport.systemeAdverse}. ${rapport.conseilAttaque}`
+            : "Où chercher le tir : la défense d'en face décide autant que vos joueurs"}
+        </p>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {(Object.keys(ATTAQUES) as FocusOffensif[]).map((cle) => (
+            <Option
+              key={cle}
+              actif={tactique.attaque === cle}
+              recommande={rapport?.zoneConseillee === cle}
+              titre={ATTAQUES[cle].libelle}
+              texte={ATTAQUES[cle].description}
+              onClick={() => changer({ attaque: cle })}
+            />
+          ))}
+        </div>
+        <p className="mt-3 font-mono text-[11px] text-doux">
+          Mesuré au harnais : contre un bloc bas, armer de neuf mètres rapporte près de trois buts de plus
+          que chercher le pivot ; contre une défense haute, c&apos;est l&apos;inverse.
+        </p>
+      </section>
+
+      <section className="grid gap-5 lg:grid-cols-[3fr_2fr]">
+        <div className="carte">
+          <h2 className="titre-carte">Engagement du bloc</h2>
+          <p className="sous-titre mb-4">Ce qu&apos;on accepte de concéder pour récupérer des ballons</p>
+          <div className="grid gap-3 sm:grid-cols-3">
+            {(Object.keys(AGRESSIVITES) as AgressiviteDefensive[]).map((cle) => (
+              <Option
+                key={cle}
+                actif={tactique.agressivite === cle}
+                titre={AGRESSIVITES[cle].libelle}
+                texte={AGRESSIVITES[cle].description}
+                onClick={() => changer({ agressivite: cle })}
+              />
+            ))}
+          </div>
+          <p className="mt-3 font-mono text-[11px] text-doux">
+            Monter sur une équipe qui ne tient pas le ballon vaut environ un demi-but ; monter sur un
+            collectif propre en coûte presque un. Chaque cran ajoute une exclusion et un jet de 7 m.
+          </p>
+        </div>
+        <div className="carte">
+          <h2 className="titre-carte">Marquage individuel</h2>
+          <p className="sous-titre mb-3">
+            {rapport ? rapport.conseilMarquage : "Aucun match à préparer"}
+          </p>
+          {rapport ? (
+            <>
+              <select
+                id="marquage"
+                aria-label="Joueur pris en individuelle"
+                className="champ text-[13px]"
+                value={tactique.marquage ?? ""}
+                onChange={(e) => changer({ marquage: e.target.value || null })}
+              >
+                <option value="">Personne — le bloc reste entier</option>
+                {(idx.effectifParClub.get(rapport.clubId) ?? [])
+                  .filter((j) => j.poste !== "GB" && Object.values(idx.clubParId.get(rapport.clubId)!.tactique.sept).includes(j.id))
+                  .sort((a, b) => b.attributs.tir - a.attributs.tir)
+                  .map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.prenom.charAt(0)}. {j.nom} — {LIBELLES_POSTE[j.poste]}, tir {j.attributs.tir}
+                      {rapport.cibleMarquage?.id === j.id ? " (cible conseillée)" : ""}
+                    </option>
+                  ))}
+              </select>
+              <p className="mt-3 text-[13px] text-doux">
+                Un défenseur colle son homme partout. Il ne touche presque plus de ballon et tire moins
+                bien — mais il manque au bloc, et les six autres respirent. Viser le bon homme fait baisser
+                le score adverse ; se tromper d&apos;homme le fait monter d&apos;un demi-but.
+              </p>
+            </>
+          ) : null}
         </div>
       </section>
 

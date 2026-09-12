@@ -41,6 +41,8 @@ export type Saison = {
   resultats: ResultatMatch[];
   terminee: boolean;
   statsJoueurs: Record<string, StatsSaisonJoueur>;
+  /** Dernière journée dont la semaine d'entraînement a été jouée. */
+  semaineEntrainee: number;
 };
 
 /** Ronde à l'italienne : n−1 journées aller, puis le retour, terrains inversés. */
@@ -87,6 +89,7 @@ export function creerSaison(monde: Monde, graine: number): Saison {
     resultats: [],
     terminee: false,
     statsJoueurs: {},
+    semaineEntrainee: -1,
   };
 }
 
@@ -127,14 +130,16 @@ function filtrerSept(sept: Tactique["sept"], effectif: Joueur[]): Partial<Tactiq
 }
 
 /** Joue toutes les rencontres de la journée courante et avance le calendrier. */
-export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, options: OptionsJournee = {}): FeuilleMatch[] {
-  if (saison.terminee) return [];
+/**
+ * La semaine d'entraînement qui précède la journée : la fraîcheur du jour et
+ * les blessures de la séance comptent pour la rencontre qui suit. Appelable
+ * deux fois sans dommage — l'interface l'appelle avant d'ouvrir le match du
+ * joueur, `jouerJournee` la rappelle pour les journées simulées d'un bloc.
+ */
+export function entrainerLaSemaine(monde: Monde, saison: Saison, idx: IndexMonde, options: OptionsJournee = {}): void {
   const numero = saison.journeeCourante;
-  const rencontres = saison.calendrier[numero] ?? [];
-  const feuilles: FeuilleMatch[] = [];
-
-  // La semaine d'entraînement précède le match : la fraîcheur du jour et les
-  // blessures de la séance comptent pour la rencontre qui suit.
+  if (saison.terminee || saison.semaineEntrainee >= numero) return;
+  saison.semaineEntrainee = numero;
   const alea = creerAleatoire(grainePour(saison.graine, "semaine", numero));
   for (const club of monde.clubs) {
     const effectif = idx.effectifParClub.get(club.id) ?? [];
@@ -145,6 +150,15 @@ export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, opti
     const rapport = entrainerSemaine(effectif, club.entrainement, numero, saison.graine);
     options.rapportEntrainement?.(club.id, rapport);
   }
+}
+
+export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, options: OptionsJournee = {}): FeuilleMatch[] {
+  if (saison.terminee) return [];
+  const numero = saison.journeeCourante;
+  const rencontres = saison.calendrier[numero] ?? [];
+  const feuilles: FeuilleMatch[] = [];
+
+  entrainerLaSemaine(monde, saison, idx, options);
 
   rencontres.forEach((r, i) => {
     const concerne = options.commentairePour === r.domicileId || options.commentairePour === r.exterieurId;

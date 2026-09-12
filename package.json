@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "eslint",
     "harnais": "vitest run src/moteur/harnais --reporter=verbose",
-    "mesurer": "tsx scripts/mesurer.ts"
+    "mesurer": "tsx scripts/mesurer.ts",
+    "mesurer:tactique": "tsx scripts/mesurer-tactique.ts",
+    "mesurer:pilotage": "tsx scripts/mesurer-pilotage.ts",
+    "mesurer:saisons": "tsx scripts/mesurer-dix-saisons.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.4",

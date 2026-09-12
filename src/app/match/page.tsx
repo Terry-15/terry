@@ -21,9 +21,16 @@ import {
   type ApercuJoueur,
   type ApercuMatch,
 } from "@/moteur/match/moteur";
-import { SYSTEMES, TEMPOS } from "@/moteur/match/parametres";
+import { AGRESSIVITES, ATTAQUES, SYSTEMES, TEMPOS } from "@/moteur/match/parametres";
 import { forceClub } from "@/moteur/monde";
-import { LIBELLES_POSTE, POSTES, type SystemeDefensif, type Tempo } from "@/moteur/types";
+import {
+  LIBELLES_POSTE,
+  POSTES,
+  type AgressiviteDefensive,
+  type FocusOffensif,
+  type SystemeDefensif,
+  type Tempo,
+} from "@/moteur/types";
 
 /** Secondes de jeu écoulées par seconde réelle. */
 const VITESSES = [
@@ -227,28 +234,6 @@ export default function PageMatch() {
               >
                 Temps mort ({moi.tempsMortsRestants})
               </button>
-              {(Object.keys(SYSTEMES) as SystemeDefensif[]).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { systeme: s }))}
-                  className={`rounded-lg border px-3 py-2 font-mono text-[11px] transition-colors ${
-                    moi.systeme === s ? "border-accent bg-accent-doux text-accent" : "border-bordure text-doux hover:border-accent"
-                  }`}
-                >
-                  {s}
-                </button>
-              ))}
-              {(Object.keys(TEMPOS) as Tempo[]).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { tempo: t }))}
-                  className={`rounded-lg border px-3 py-2 font-mono text-[11px] transition-colors ${
-                    moi.tempo === t ? "border-accent bg-accent-doux text-accent" : "border-bordure text-doux hover:border-accent"
-                  }`}
-                >
-                  {TEMPOS[t].libelle}
-                </button>
-              ))}
               <button
                 onClick={() =>
                   agirBanc(() => ajusterTactique(match.etat, match.monCamp, { gardienVolant: !moi.gardienVolant }))
@@ -259,6 +244,77 @@ export default function PageMatch() {
               >
                 Gardien volant
               </button>
+            </div>
+
+            <div className="mt-3 space-y-2">
+              <Consigne libelle="Défense">
+                {(Object.keys(SYSTEMES) as SystemeDefensif[]).map((s) => (
+                  <Bouton
+                    key={s}
+                    actif={moi.systeme === s}
+                    titre={SYSTEMES[s].description}
+                    onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { systeme: s }))}
+                  >
+                    {s}
+                  </Bouton>
+                ))}
+              </Consigne>
+              <Consigne libelle="Engagement">
+                {(Object.keys(AGRESSIVITES) as AgressiviteDefensive[]).map((a) => (
+                  <Bouton
+                    key={a}
+                    actif={moi.agressivite === a}
+                    titre={AGRESSIVITES[a].description}
+                    onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { agressivite: a }))}
+                  >
+                    {AGRESSIVITES[a].libelle}
+                  </Bouton>
+                ))}
+              </Consigne>
+              <Consigne libelle="Rythme">
+                {(Object.keys(TEMPOS) as Tempo[]).map((t) => (
+                  <Bouton
+                    key={t}
+                    actif={moi.tempo === t}
+                    titre={TEMPOS[t].description}
+                    onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { tempo: t }))}
+                  >
+                    {TEMPOS[t].libelle}
+                  </Bouton>
+                ))}
+              </Consigne>
+              <Consigne libelle="Zone d'attaque">
+                {(Object.keys(ATTAQUES) as FocusOffensif[]).map((a) => (
+                  <Bouton
+                    key={a}
+                    actif={moi.attaque === a}
+                    titre={ATTAQUES[a].description}
+                    onClick={() => agirBanc(() => ajusterTactique(match.etat, match.monCamp, { attaque: a }))}
+                  >
+                    {ATTAQUES[a].libelle}
+                  </Bouton>
+                ))}
+              </Consigne>
+              <Consigne libelle="Individuelle">
+                <select
+                  aria-label="Joueur adverse pris en individuelle"
+                  className="champ w-auto max-w-full py-1 text-xs"
+                  value={moi.marquage ?? ""}
+                  onChange={(e) =>
+                    agirBanc(() => ajusterTactique(match.etat, match.monCamp, { marquage: e.target.value || null }))
+                  }
+                >
+                  <option value="">Personne</option>
+                  {[...adverse.champ, ...adverse.banc]
+                    .filter((j) => j.posteNaturel !== "GB")
+                    .map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.nom} — {j.buts} but(s) sur {j.tirs} tir(s)
+                        {j.posteJoue ? "" : " (au banc)"}
+                      </option>
+                    ))}
+                </select>
+              </Consigne>
             </div>
 
             {message ? <p className="mt-2 text-[13px] text-mauvais">{message}</p> : null}
@@ -295,8 +351,20 @@ export default function PageMatch() {
               <h2 className="titre-carte">En face — {adverse.nom}</h2>
               <p className="sous-titre mb-3">Ce qu&apos;ils montrent sur le terrain</p>
               <dl className="space-y-1 text-sm">
-                <LigneInfo terme="Défense" valeur={SYSTEMES[adverse.systeme].libelle} />
+                <LigneInfo
+                  terme="Défense"
+                  valeur={`${SYSTEMES[adverse.systeme].libelle} · ${AGRESSIVITES[adverse.agressivite].libelle.toLowerCase()}`}
+                />
                 <LigneInfo terme="Rythme" valeur={TEMPOS[adverse.tempo].libelle} />
+                <LigneInfo terme="Ils attaquent" valeur={ATTAQUES[adverse.attaque].libelle} />
+                <LigneInfo
+                  terme="Individuelle sur"
+                  valeur={
+                    adverse.marquage
+                      ? ([...moi.champ, ...moi.banc].find((j) => j.id === adverse.marquage)?.nom ?? "un de vos joueurs")
+                      : "personne"
+                  }
+                />
                 <LigneInfo
                   terme="Exclusions en cours"
                   valeur={String(adverse.banc.filter((j) => j.exclusJusqua !== null).length)}
@@ -532,6 +600,39 @@ function LigneJoueur({
         </span>
       </button>
     </li>
+  );
+}
+
+function Consigne({ libelle, children }: { libelle: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className="sous-titre w-28 shrink-0 pt-2">{libelle}</span>
+      <div className="flex flex-1 flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function Bouton({
+  actif,
+  titre,
+  onClick,
+  children,
+}: {
+  actif: boolean;
+  titre?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      title={titre}
+      className={`rounded-lg border px-3 py-1.5 font-mono text-[11px] transition-colors ${
+        actif ? "border-accent bg-accent-doux text-accent" : "border-bordure text-doux hover:border-accent"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 

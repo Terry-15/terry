@@ -1,8 +1,12 @@
 import { creerMonde, indexer, type IndexMonde } from "../moteur/monde";
 import { creerMatch, simulerMatch, type EtatMatch } from "../moteur/match/moteur";
+import { FOCUS, INTENSITES, type RapportEntrainement } from "../moteur/entrainement";
+import { NOTE_MOYENNE } from "../moteur/notation";
+import type { ContexteProgression } from "../moteur/evolution";
 import {
   classement,
   creerSaison,
+  entrainerLaSemaine,
   entreeEquipe,
   jouerJournee as jouerJourneeSaison,
   prochaineRencontre,
@@ -10,11 +14,11 @@ import {
   type Saison,
 } from "../moteur/saison";
 import { passerALaSaisonSuivante } from "../moteur/evolution";
-import type { BilanSaison, Camp, FeuilleMatch, Monde } from "../moteur/types";
+import type { BilanSaison, Camp, FeuilleMatch, Joueur, Monde } from "../moteur/types";
 import { tactiqueIA } from "./ia";
 import { simulerAvecAdjoints } from "./pilote";
 
-export const VERSION_SAUVEGARDE = 1;
+export const VERSION_SAUVEGARDE = 2;
 
 export type MatchJoue = {
   journee: number;
@@ -36,6 +40,8 @@ export type Partie = {
   dernierMatchVu: boolean;
   /** Rang attendu par le conseil en début de saison, d'après la réputation. */
   rangAttendu: number;
+  /** Séances de la saison pour le club dirigé, de la plus récente à la plus ancienne. */
+  entrainements: RapportEntrainement[];
   creeeLe: string;
 };
 
@@ -67,7 +73,25 @@ export function nouvellePartie(clubId: string, manager: string, graine = Date.no
     dernierMatch: null,
     dernierMatchVu: true,
     rangAttendu: rangAttendu(monde, clubId),
+    entrainements: [],
     creeeLe: new Date().toISOString(),
+  };
+}
+
+/**
+ * Les réglages de journée communs à tous les chemins : l'entraînement du club
+ * dirigé est celui que le joueur a choisi, et son rapport de séance est
+ * conservé pour l'écran d'entraînement.
+ */
+function optionsJournee(partie: Partie) {
+  return {
+    commentairePour: partie.clubId,
+    entrainementDirige: partie.clubId,
+    rapportEntrainement: (clubId: string, rapport: RapportEntrainement) => {
+      if (clubId !== partie.clubId) return;
+      partie.entrainements = [rapport, ...partie.entrainements].slice(0, 8);
+    },
+    simuler: simulerAvecAdjoints,
   };
 }
 
@@ -102,6 +126,9 @@ export type MatchEnCours = {
 export function ouvrirMatch(partie: Partie, idx: IndexMonde): MatchEnCours | null {
   if (partie.saison.terminee) return null;
   const numero = partie.saison.journeeCourante;
+  // La séance de la semaine d'abord : c'est elle qui fixe la fraîcheur et les
+  // indisponibilités du jour de match.
+  entrainerLaSemaine(partie.monde, partie.saison, idx, optionsJournee(partie));
   preparerJournee(partie, idx, numero);
   const mienne = (partie.saison.calendrier[numero] ?? []).find(
     (r) => r.domicileId === partie.clubId || r.exterieurId === partie.clubId,
@@ -131,11 +158,7 @@ export function ouvrirMatch(partie: Partie, idx: IndexMonde): MatchEnCours | nul
  * adjoints.
  */
 export function cloturerJournee(partie: Partie, idx: IndexMonde, match: MatchEnCours, feuille: FeuilleMatch) {
-  jouerJourneeSaison(partie.monde, partie.saison, idx, {
-    commentairePour: partie.clubId,
-    feuilleFournie: feuille,
-    simuler: simulerAvecAdjoints,
-  });
+  jouerJourneeSaison(partie.monde, partie.saison, idx, { ...optionsJournee(partie), feuilleFournie: feuille });
   partie.dernierMatchVu = false;
   partie.dernierMatch = {
     journee: match.journee,
@@ -149,6 +172,7 @@ export function cloturerJournee(partie: Partie, idx: IndexMonde, match: MatchEnC
 export function jouerJourneeSansMoi(partie: Partie, idx: IndexMonde): MatchJoue | null {
   if (partie.saison.terminee) return null;
   const numero = partie.saison.journeeCourante;
+  entrainerLaSemaine(partie.monde, partie.saison, idx, optionsJournee(partie));
   preparerJournee(partie, idx, numero);
   const mienne = (partie.saison.calendrier[numero] ?? []).find(
     (r) => r.domicileId === partie.clubId || r.exterieurId === partie.clubId,
@@ -161,11 +185,7 @@ export function jouerJourneeSansMoi(partie: Partie, idx: IndexMonde): MatchJoue 
       )
     : undefined;
 
-  jouerJourneeSaison(partie.monde, partie.saison, idx, {
-    commentairePour: partie.clubId,
-    feuilleFournie: feuilleJoueur,
-    simuler: simulerAvecAdjoints,
-  });
+  jouerJourneeSaison(partie.monde, partie.saison, idx, { ...optionsJournee(partie), feuilleFournie: feuilleJoueur });
 
   partie.dernierMatchVu = false;
   partie.dernierMatch =
@@ -210,12 +230,33 @@ export function terminerLaSaison(partie: Partie): BilanSaison {
   partie.dernierMatch = null;
   partie.dernierMatchVu = true;
   partie.rangAttendu = rangAttendu(partie.monde, partie.clubId);
+  partie.entrainements = [];
   return bilan;
 }
 
 /** Le bilan de la dernière saison terminée, s'il y en a un. */
 export function dernierBilan(partie: Partie): BilanSaison | null {
   return partie.monde.historique.length ? partie.monde.historique[partie.monde.historique.length - 1] : null;
+}
+
+/**
+ * Ce que le moteur regardera à la bascule de saison pour faire progresser ce
+ * joueur : son temps de jeu, sa note de match moyenne, son implication à
+ * l'entraînement et ce que le club travaille. La fiche du joueur affiche ces
+ * quatre chiffres — c'est le contrat passé avec le joueur : rien ne se joue
+ * en coulisses.
+ */
+export function contexteProgression(partie: Partie, idx: IndexMonde, j: Joueur): ContexteProgression {
+  const club = j.clubId ? idx.clubParId.get(j.clubId) : undefined;
+  const entrainement = club?.entrainement ?? { focus: "collectif" as const, intensite: "normale" as const };
+  const stats = partie.saison.statsJoueurs[j.id];
+  return {
+    minutes: (stats?.secondes ?? 0) / 60,
+    noteMatch: stats && stats.matchs > 0 ? stats.noteCumulee / stats.matchs : NOTE_MOYENNE,
+    implication: j.semainesEntrainement > 0 ? j.implication : 5.5,
+    clesTravaillees: FOCUS[entrainement.focus].cles,
+    rendement: INTENSITES[entrainement.intensite].rendement,
+  };
 }
 
 /* ------------------------------------------------------------------- vues */
