@@ -27,6 +27,12 @@ export const LIBELLES_POSTE: Record<Poste, string> = {
 
 export type Main = "droitier" | "gaucher";
 
+/* ----------------------------------------------------------- entraînement */
+
+export type FocusEntrainement = "physique" | "tir" | "defense" | "collectif" | "gardiens" | "recuperation";
+export type IntensiteEntrainement = "legere" | "normale" | "soutenue";
+export type Entrainement = { focus: FocusEntrainement; intensite: IntensiteEntrainement };
+
 /* -------------------------------------------------------------- attributs */
 
 /**
@@ -106,6 +112,10 @@ export type Joueur = {
   forme: number;
   /** Journées d'indisponibilité restantes. */
   blessureJours: number;
+  /** Implication moyenne à l'entraînement depuis le début de la saison, sur 10. */
+  implication: number;
+  /** Nombre de séances suivies, pour faire la moyenne. */
+  semainesEntrainement: number;
 };
 
 /** Nom affichable, « P. Nom » pour les listes serrées. */
@@ -127,6 +137,7 @@ export type Club = {
   masseSalarialeMax: number;
   couleur: string;
   tactique: Tactique;
+  entrainement: Entrainement;
 };
 
 import type { StyleClub } from "./noms";
@@ -264,6 +275,8 @@ export type StatsJoueurMatch = {
   /** Gardien : arrêts et tirs subis. */
   arrets: number;
   tirsSubis: number;
+  /** Note de match sur 10, calculée à partir de cette ligne de statistiques. */
+  note: number;
 };
 
 export type StatsEquipeMatch = {

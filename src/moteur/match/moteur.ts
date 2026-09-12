@@ -163,6 +163,7 @@ function statsJoueurVides(joueurId: string): StatsJoueurMatch {
     exclusions: 0,
     arrets: 0,
     tirsSubis: 0,
+    note: 0,
   };
 }
 

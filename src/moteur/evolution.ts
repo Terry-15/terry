@@ -9,6 +9,8 @@ import {
   salaireAttendu,
   type IndexMonde,
 } from "./monde";
+import { FOCUS, INTENSITES } from "./entrainement";
+import { NOTE_MOYENNE } from "./notation";
 import { classement, meilleursButeurs, type Saison } from "./saison";
 import {
   ATTRIBUTS,
@@ -41,10 +43,13 @@ export const AGE_LIMITE = 39;
  * son poids, environ 0,15. Sans cette conversion, un jeune à fort potentiel
  * progressait de 0,4 note par saison et n'aurait jamais éclos.
  */
-function appliquerGain(j: Joueur, gainEnNotes: number, alea: Aleatoire) {
+function appliquerGain(j: Joueur, gainEnNotes: number, alea: Aleatoire, clesTravaillees: CleAttribut[] = []) {
   const poids = PONDERATIONS[j.poste];
   const cles = Object.keys(poids) as CleAttribut[];
-  const valeurs = cles.map((c) => poids[c] ?? 0);
+  // Ce qu'on a travaillé à l'entraînement progresse en priorité : le focus de
+  // la saison se lit donc dans les attributs qui montent.
+  const travaillees = new Set(clesTravaillees);
+  const valeurs = cles.map((c) => (poids[c] ?? 0) * (travaillees.has(c) ? 2.6 : 1));
   const total = valeurs.reduce((a, b) => a + b, 0);
   // Espérance de hausse de la note par point d'attribut ajouté.
   const esperance = valeurs.reduce((a, b) => a + b * b, 0) / (total * total);
@@ -74,25 +79,52 @@ function appliquerDeclin(j: Joueur, force: number, alea: Aleatoire) {
  * les minutes ne sont donc pas seulement une ressource à ménager, c'est aussi
  * ce qui fait éclore un joueur. Les trentenaires perdent leurs jambes.
  */
-export function faireProgresser(j: Joueur, minutes: number, alea: Aleatoire): { avant: number; apres: number } {
+export type ContexteProgression = {
+  /** Minutes jouées sur la saison. */
+  minutes: number;
+  /** Note de match moyenne sur la saison, sur 10. */
+  noteMatch: number;
+  /** Implication moyenne à l'entraînement, sur 10. */
+  implication: number;
+  /** Attributs travaillés à l'entraînement pendant la saison. */
+  clesTravaillees: CleAttribut[];
+  /** Rendement de l'intensité d'entraînement retenue. */
+  rendement: number;
+};
+
+/**
+ * Combien un joueur progresse en une saison. Trois entrées, et elles se
+ * lisent toutes sur sa fiche :
+ *   — ce qu'il lui reste à combler avant son potentiel ;
+ *   — son implication à l'entraînement, semaine après semaine ;
+ *   — ce qu'il a fait en match, temps de jeu et note.
+ * Aucune n'est décorative : un talent qui ne joue pas et s'entraîne mal reste
+ * à son niveau, et un joueur moyen très appliqué finit par gratter sa marge.
+ */
+export function faireProgresser(j: Joueur, ctx: ContexteProgression, alea: Aleatoire): { avant: number; apres: number } {
   const avant = note(j.poste, j.attributs);
   const marge = j.potentiel - avant;
-  // Une saison pleine, c'est environ 1 000 minutes pour un titulaire.
-  const partJeu = borner(minutes / 900, 0, 1.2);
+  // Une saison pleine, c'est environ 900 minutes pour un titulaire.
+  const partJeu = borner(ctx.minutes / 900, 0, 1.2);
+  const partImplication = borner((ctx.implication - 5.5) / 2.5, -1, 1);
+  // Une note de match sur trois apparitions ne dit rien : son poids grandit
+  // avec le temps de jeu.
+  const fiabilite = borner(ctx.minutes / 300, 0, 1);
+  const partNote = borner((ctx.noteMatch - 6) / 1.5, -1, 1.5) * fiabilite;
+  // Les trois leviers pèsent le même ordre de grandeur : un titulaire très
+  // appliqué progresse six fois plus vite qu'un remplaçant dilettante.
+  const elan =
+    Math.max(0, 0.10 + 0.26 * partJeu + 0.26 * partImplication + 0.14 * partNote) * ctx.rendement;
 
   if (j.age <= 23) {
-    // Un titulaire comble environ un tiers de sa marge par saison, un joueur
-    // qui ne joue pas trois fois moins : le temps de jeu est ce qui fait
-    // éclore un joueur, pas seulement une ressource à ménager.
-    const gain = Math.max(0, marge) * (0.14 + 0.34 * partJeu) * alea.entre(0.5, 1.5);
-    appliquerGain(j, gain, alea);
+    appliquerGain(j, Math.max(0, marge) * elan * alea.entre(0.6, 1.4), alea, ctx.clesTravaillees);
   } else if (j.age <= 28) {
-    const gain = Math.max(0, marge) * (0.06 + 0.16 * partJeu) * alea.entre(0.3, 1.3);
-    appliquerGain(j, gain, alea);
+    appliquerGain(j, Math.max(0, marge) * elan * 0.45 * alea.entre(0.4, 1.4), alea, ctx.clesTravaillees);
   } else if (j.age <= 31) {
-    appliquerDeclin(j, 0.5, alea);
+    // Un trentenaire très appliqué recule un peu moins vite.
+    appliquerDeclin(j, 0.5 - partImplication * 0.12, alea);
   } else {
-    appliquerDeclin(j, 0.8 + (j.age - 32) * 0.08, alea);
+    appliquerDeclin(j, 0.8 + (j.age - 32) * 0.08 - partImplication * 0.12, alea);
     // Le bras finit par lâcher avant les jambes chez un arrière.
     if (alea.chance(0.5)) j.attributs.tir = borner(j.attributs.tir - 1, 1, 20);
   }
@@ -230,7 +262,7 @@ function vieillirLeMonde(
      * centre. Sans cette règle du remplacement à l'identique, le championnat
      * gagnait ou perdait un point de niveau par saison.
      */
-    const aRemplacer: { poste: Poste; rang: number }[] = [];
+    const aRemplacer: { poste: Poste; rang: number; noteVisee: number }[] = [];
     const rangDe = (j: Joueur) => {
       const memePoste = effectif
         .filter((x) => x.poste === j.poste)
@@ -240,14 +272,27 @@ function vieillirLeMonde(
 
     for (const j of effectif) {
       j.age += 1;
-      const minutes = (saison.statsJoueurs[j.id]?.secondes ?? 0) / 60;
-      const { avant, apres } = faireProgresser(j, minutes, alea);
-      if (Math.abs(apres - avant) >= 0.4) {
+      const stats = saison.statsJoueurs[j.id];
+      const { avant, apres } = faireProgresser(
+        j,
+        {
+          minutes: (stats?.secondes ?? 0) / 60,
+          noteMatch: stats && stats.matchs > 0 ? stats.noteCumulee / stats.matchs : NOTE_MOYENNE,
+          implication: j.semainesEntrainement > 0 ? j.implication : 5.5,
+          clesTravaillees: FOCUS[club.entrainement.focus].cles,
+          rendement: INTENSITES[club.entrainement.intensite].rendement,
+        },
+        alea,
+      );
+      if (Math.abs(apres - avant) >= 0.3) {
         mouvement.progressions.push({ nom: `${j.prenom} ${j.nom}`, poste: j.poste, avant, apres });
       }
       if (prendSaRetraite(j, alea)) {
         mouvement.retraites.push({ nom: `${j.prenom} ${j.nom}`, age: j.age, poste: j.poste });
-        aRemplacer.push({ poste: j.poste, rang: rangDe(j) });
+        // Le remplaçant arrive au niveau du partant, à peine en dessous : un
+        // club ne perd pas trois points de niveau parce qu'un joueur a
+        // raccroché, et n'en gagne pas non plus.
+        aRemplacer.push({ poste: j.poste, rang: rangDe(j), noteVisee: note(j.poste, j.attributs) * 0.94 });
         continue;
       }
       // Remise à zéro de l'état du jour et renouvellement des contrats échus.
@@ -255,6 +300,9 @@ function vieillirLeMonde(
       j.forme = 0;
       j.moral = borner(j.moral + alea.entier(-5, 10), 30, 90);
       j.blessureJours = 0;
+      // L'implication se remet à zéro : elle se juge sur la saison en cours.
+      j.implication = 0;
+      j.semainesEntrainement = 0;
       if (j.saisonFinContrat <= monde.saison) j.saisonFinContrat = monde.saison + 1 + alea.entier(1, 3);
       j.salaire = salaireAttendu(note(j.poste, j.attributs), j.age, club.reputation);
       gardes.push(j);
@@ -276,7 +324,7 @@ function vieillirLeMonde(
     const numerosPris = new Set(gardes.map((j) => j.numero));
     let index = 0;
     while (gardes.length < TAILLE_EFFECTIF) {
-      const place = aRemplacer.shift() ?? { poste: posteLeMoinsFourni(gardes), rang: 2 };
+      const place = aRemplacer.shift() ?? { poste: posteLeMoinsFourni(gardes), rang: 2, noteVisee: 0 };
       // Le centre de formation alimente les fins de banc, pas le sept majeur.
       const jeune = place.rang >= 2 && alea.chance(0.6);
       let numero = alea.entier(2, 99);
@@ -297,6 +345,10 @@ function vieillirLeMonde(
               // sans cela, la population du championnat vieillissait d'un an
               // toutes les trois saisons.
         age: jeune ? alea.entier(17, 19) : alea.entier(19, 24),
+        // Un recrutement remplace un partant : la recrue arrive au niveau du
+        // joueur qu'elle remplace, à 6 % près. Le centre de formation, lui,
+        // sort des joueurs bruts : on ne lui impose pas de cible.
+        noteVisee: !jeune && place.noteVisee > 0 ? place.noteVisee : undefined,
       });
       gardes.push(recrue);
       if (jeune) {

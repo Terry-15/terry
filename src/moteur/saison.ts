@@ -1,6 +1,8 @@
 import { borner, creerAleatoire, grainePour, melanger } from "./aleatoire";
+import { entrainerSemaine, focusAutomatique, type RapportEntrainement } from "./entrainement";
 import { disponibles, meilleurSept, type IndexMonde } from "./monde";
 import { simulerMatch, type EntreeEquipe, type OptionsMatch } from "./match/moteur";
+import { noterFeuille } from "./notation";
 import type { FeuilleMatch, Joueur, Monde, StatsJoueurMatch, Tactique } from "./types";
 
 /* --------------------------------------------------------------- calendrier */
@@ -26,6 +28,8 @@ export type StatsSaisonJoueur = {
   exclusions: number;
   arrets: number;
   tirsSubis: number;
+  /** Somme des notes de match, pour en tirer une moyenne. */
+  noteCumulee: number;
 };
 
 export type Saison = {
@@ -91,6 +95,10 @@ export function creerSaison(monde: Monde, graine: number): Saison {
 export type OptionsJournee = {
   /** Le match de ce club est commenté minute par minute. */
   commentairePour?: string;
+  /** Reçoit le rapport d'entraînement de la semaine, club par club. */
+  rapportEntrainement?: (clubId: string, rapport: RapportEntrainement) => void;
+  /** Clubs dont l'entraînement est décidé par l'appelant (le club dirigé). */
+  entrainementDirige?: string;
   /** Feuille déjà jouée (match du joueur simulé à part, avec ses décisions). */
   feuilleFournie?: FeuilleMatch;
   /**
@@ -125,6 +133,19 @@ export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, opti
   const rencontres = saison.calendrier[numero] ?? [];
   const feuilles: FeuilleMatch[] = [];
 
+  // La semaine d'entraînement précède le match : la fraîcheur du jour et les
+  // blessures de la séance comptent pour la rencontre qui suit.
+  const alea = creerAleatoire(grainePour(saison.graine, "semaine", numero));
+  for (const club of monde.clubs) {
+    const effectif = idx.effectifParClub.get(club.id) ?? [];
+    if (!effectif.length) continue;
+    if (club.id !== options.entrainementDirige) {
+      club.entrainement = focusAutomatique(effectif, alea);
+    }
+    const rapport = entrainerSemaine(effectif, club.entrainement, numero, saison.graine);
+    options.rapportEntrainement?.(club.id, rapport);
+  }
+
   rencontres.forEach((r, i) => {
     const concerne = options.commentairePour === r.domicileId || options.commentairePour === r.exterieurId;
     const jouer = options.simuler ?? simulerMatch;
@@ -135,6 +156,9 @@ export function jouerJournee(monde: Monde, saison: Saison, idx: IndexMonde, opti
             graine: grainePour(saison.graine, numero, i, r.domicileId),
             commentaire: concerne,
           });
+    // La feuille est notée avant d'être rangée : c'est cette note qui nourrit
+    // la progression des joueurs à la fin de la saison.
+    noterFeuille(feuille, (joueurId) => idx.joueurParId.get(joueurId)?.poste ?? "DC");
     feuilles.push(feuille);
     saison.resultats.push({
       ...r,
@@ -166,6 +190,7 @@ function statsVides(): StatsSaisonJoueur {
     exclusions: 0,
     arrets: 0,
     tirsSubis: 0,
+    noteCumulee: 0,
   };
 }
 
@@ -184,6 +209,7 @@ function cumulerStats(saison: Saison, feuille: FeuilleMatch) {
     s.exclusions += ligne.exclusions;
     s.arrets += ligne.arrets;
     s.tirsSubis += ligne.tirsSubis;
+    s.noteCumulee += ligne.note;
   }
 }
 
@@ -202,9 +228,9 @@ function appliquerApresMatch(
   const alea = creerAleatoire(grainePour(graine, "apres", journee, clubId));
   const parJoueur = new Map(lignes.map((l) => [l.joueurId, l]));
   for (const j of idx.effectifParClub.get(clubId) ?? []) {
+    // Les blessures se décomptent à l'entraînement, une fois par semaine.
     if (j.blessureJours > 0) {
-      j.blessureJours--;
-      j.condition = borner(j.condition + 14, 0, 100);
+      j.condition = borner(j.condition + 10, 0, 100);
       continue;
     }
     const ligne = parJoueur.get(j.id);

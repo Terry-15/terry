@@ -1,5 +1,6 @@
 import { borner, creerAleatoire, grainePour, type Aleatoire } from "./aleatoire";
-import { bornerAttributs, malusMain, note } from "./attributs";
+import { PONDERATIONS, bornerAttributs, malusMain, note } from "./attributs";
+import { ENTRAINEMENT_PAR_DEFAUT } from "./entrainement";
 import { DIVISIONS_MODELE, NOMS, PRENOMS, type ModeleClub, type StyleClub } from "./noms";
 import {
   ATTRIBUTS,
@@ -156,7 +157,30 @@ export type OptionsJoueur = {
   defenseur?: boolean;
   /** Âge imposé, pour un joueur issu du centre de formation. */
   age?: number;
+  /**
+   * Note visée, sur 20. Utilisée quand on remplace un joueur précis : le
+   * remplaçant arrive au niveau du partant, à un cheveu près. Sans cela, le
+   * niveau du championnat dérivait d'un point en dix saisons.
+   */
+  noteVisee?: number;
 };
+
+/**
+ * Ajuste les attributs jusqu'à ce que la note du joueur atteigne la cible.
+ * On passe par les attributs qui comptent au poste, donc le joueur reste
+ * cohérent : on ne fabrique pas un ailier à 18 de puissance.
+ */
+function ajusterVersNote(poste: Poste, attributs: Attributs, cible: number, alea: Aleatoire) {
+  const poids = PONDERATIONS[poste];
+  const cles = Object.keys(poids) as CleAttribut[];
+  const valeurs = cles.map((c) => poids[c] ?? 0);
+  for (let i = 0; i < 60; i++) {
+    const ecart = cible - note(poste, attributs);
+    if (Math.abs(ecart) < 0.15) break;
+    const cle = alea.choixPondere(cles, valeurs);
+    attributs[cle] = borner(attributs[cle] + (ecart > 0 ? 1 : -1), 1, 20);
+  }
+}
 
 /**
  * La seule fabrique de joueurs du jeu. Le centre de formation et le
@@ -190,6 +214,10 @@ export function creerJoueur(alea: Aleatoire, o: OptionsJoueur): Joueur {
   attributs.tir += malusMain(poste, main);
   bornerAttributs(attributs);
 
+  // Avant toute autre chose : si on remplace un partant, on recale les
+  // attributs sur sa note. L'ordre des tirages qui suivent ne doit pas
+  // changer, sinon tout le monde généré change avec lui.
+  if (o.noteVisee !== undefined) ajusterVersNote(poste, attributs, o.noteVisee, alea);
   const noteActuelle = note(poste, attributs);
   const margeProgression = age <= 20 ? alea.entre(1.5, 4.5) : age <= 24 ? alea.entre(0.6, 2.8) : age <= 28 ? alea.entre(0, 1.2) : 0;
   const [prenom, nom] = nommer();
@@ -212,6 +240,8 @@ export function creerJoueur(alea: Aleatoire, o: OptionsJoueur): Joueur {
     moral: alea.entier(55, 80),
     forme: 0,
     blessureJours: 0,
+    implication: 0,
+    semainesEntrainement: 0,
   };
 }
 
@@ -323,6 +353,7 @@ export function creerMonde(graine: number, saison = 2026): Monde {
         masseSalarialeMax: Math.round(mc.reputation * mc.reputation * 26),
         couleur: mc.couleur,
         tactique: tactiqueParDefaut(),
+        entrainement: { ...ENTRAINEMENT_PAR_DEFAUT },
       });
     });
 
