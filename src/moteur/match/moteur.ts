@@ -40,7 +40,11 @@ import {
   DUREE_MINIMALE_POSSESSION,
   EFFET_SUPERIORITE,
   EXCLUSIONS_AVANT_DISQUALIFICATION,
+  ACCORD_ATTAQUE,
+  AGRESSIVITES,
+  ATTAQUES,
   FAUTE_BASE,
+  MARQUAGE,
   FENETRE_GARDIEN_VOLANT,
   RETARD_GARDIEN_VOLANT,
   INTERACTION,
@@ -273,7 +277,11 @@ function crediterTemps(cote: Cote, dt: number) {
   // Le compte du temps de jeu : sept joueurs sur le terrain, moins les exclus.
   const surTerrain = cote.champ.length + (cote.gardien ? 1 : 0);
   cote.stats.secondesInferiorite += dt * (7 - surTerrain);
-  const usure = USURE_PAR_MINUTE * TEMPOS[cote.tactique.tempo].usure * SYSTEMES[cote.tactique.systeme].usure;
+  const usure =
+    USURE_PAR_MINUTE *
+    TEMPOS[cote.tactique.tempo].usure *
+    SYSTEMES[cote.tactique.systeme].usure *
+    AGRESSIVITES[cote.tactique.agressivite].usure;
 
   if (cote.gardien) {
     const g = cote.etats.get(cote.gardien)!;
@@ -537,12 +545,14 @@ const CLES_TIR: Record<TypeTir, [CleAttribut, number][]> = {
   sept: [["tir", 0.44], ["sangFroid", 0.42], ["puissance", 0.14]],
 };
 
-function typeTirPour(poste: PosteChamp, systemeAdverse: SystemeDefensif, alea: Aleatoire): TypeTir {
+function typeTirPour(poste: PosteChamp, att: Cote, systemeAdverse: SystemeDefensif, alea: Aleatoire): TypeTir {
   if (poste === "AiG" || poste === "AiD") return "aile";
   if (poste === "PV") return "six";
   // Un arrière ou un demi-centre peut aussi percuter et finir près du but —
-  // d'autant plus souvent que la défense d'en face est haute.
-  return alea.chance(PENETRATION[systemeAdverse]) ? "six" : "neuf";
+  // d'autant plus souvent que la défense d'en face est haute, et selon la
+  // consigne : on entre dedans ou on arme de neuf mètres.
+  const p = PENETRATION[systemeAdverse] * ATTAQUES[att.tactique.attaque].penetration;
+  return alea.chance(p) ? "six" : "neuf";
 }
 
 function qualiteTir(cote: Cote, place: PlaceChamp, type: TypeTir): number {
@@ -556,7 +566,9 @@ function qualiteTir(cote: Cote, place: PlaceChamp, type: TypeTir): number {
 function qualiteDefense(def: Cote, type: TypeTir): number {
   const sys = SYSTEMES[def.tactique.systeme];
   const gk = qualiteGardien(def);
-  const champ = moyenneChamp(def, "defense");
+  // Un bloc prudent reste en place et défend mieux son système ; un bloc
+  // engagé monte, et laisse des intervalles derrière lui.
+  const champ = moyenneChamp(def, "defense") + AGRESSIVITES[def.tactique.agressivite].defense;
   const bloc = (moyenneChamp(def, "blocage") + moyenneChamp(def, "detente")) / 2;
   switch (type) {
     case "neuf":
@@ -832,17 +844,27 @@ export function effectuerChangement(etat: EtatMatch, camp: Camp, sortantId: stri
 export function ajusterTactique(
   etat: EtatMatch,
   camp: Camp,
-  modif: Partial<Pick<Tactique, "systeme" | "tempo" | "rotation" | "gardienVolant">>,
+  modif: Partial<
+    Pick<Tactique, "systeme" | "tempo" | "rotation" | "gardienVolant" | "attaque" | "agressivite" | "marquage">
+  >,
 ): ReponseBanc {
   const c = cote(etat, camp);
   if (etat.termine) return { ok: false, raison: "Le match est terminé." };
-  const avant = { systeme: c.tactique.systeme, tempo: c.tactique.tempo };
+  const adverse = cote(etat, camp === "domicile" ? "exterieur" : "domicile");
+  const avant = { ...c.tactique };
   c.tactique = { ...c.tactique, ...modif };
-  if (modif.systeme && modif.systeme !== avant.systeme) {
-    etat.journal?.({ seconde: etat.t, type: "changement", camp, texte: `${c.club.abbr} passe en ${modif.systeme}` });
+  const dire = (texte: string) => etat.journal?.({ seconde: etat.t, type: "changement", camp, texte });
+  if (modif.systeme && modif.systeme !== avant.systeme) dire(`${c.club.abbr} passe en ${modif.systeme}`);
+  if (modif.tempo && modif.tempo !== avant.tempo) dire(`${c.club.abbr} change de rythme`);
+  if (modif.attaque && modif.attaque !== avant.attaque) {
+    dire(`${c.club.abbr} réoriente son attaque : ${ATTAQUES[modif.attaque].libelle.toLowerCase()}`);
   }
-  if (modif.tempo && modif.tempo !== avant.tempo) {
-    etat.journal?.({ seconde: etat.t, type: "changement", camp, texte: `${c.club.abbr} change de rythme` });
+  if (modif.agressivite && modif.agressivite !== avant.agressivite) {
+    dire(`${c.club.abbr} défend de façon ${AGRESSIVITES[modif.agressivite].libelle.toLowerCase()}`);
+  }
+  if (modif.marquage !== undefined && modif.marquage !== avant.marquage) {
+    const cible = modif.marquage ? adverse.etats.get(modif.marquage) : null;
+    dire(cible ? `${c.club.abbr} prend ${nomCourt(cible.j)} en individuelle` : `${c.club.abbr} relâche son marquage individuel`);
   }
   return { ok: true };
 }
@@ -880,6 +902,10 @@ export type ApercuCote = {
   score: number;
   systeme: Tactique["systeme"];
   tempo: Tactique["tempo"];
+  attaque: Tactique["attaque"];
+  agressivite: Tactique["agressivite"];
+  /** Joueur adverse pris en individuelle par ce banc, ou null. */
+  marquage: string | null;
   gardienVolant: boolean;
   tempsMortsRestants: number;
   serieAdverse: number;
@@ -931,6 +957,9 @@ function apercuCote(c: Cote): ApercuCote {
     score: c.score,
     systeme: c.tactique.systeme,
     tempo: c.tactique.tempo,
+    attaque: c.tactique.attaque,
+    agressivite: c.tactique.agressivite,
+    marquage: c.tactique.marquage,
     gardienVolant: c.gardienVolant,
     tempsMortsRestants: TEMPS_MORTS_PAR_MATCH - c.tempsMorts.total,
     serieAdverse: c.serieAdverse,
@@ -973,6 +1002,10 @@ function resoudrePossession(
   const tempoAtt = TEMPOS[att.tactique.tempo];
   const sysDef = SYSTEMES[def.tactique.systeme];
   const inter = INTERACTION[att.tactique.tempo][def.tactique.systeme];
+  const accord = ACCORD_ATTAQUE[att.tactique.attaque][def.tactique.systeme];
+  const engagement = AGRESSIVITES[def.tactique.agressivite];
+  // Un défenseur parti en individuelle, c'est un intervalle de moins couvert.
+  const enIndividuelle = marqueSurLeTerrain(att, def) !== null;
   const avantage = att.champ.length - def.champ.length;
   // Le temps mort agit sur les deux possessions suivantes : consigne claire,
   // jambes reposées, et un ballon qu'on perd moins bêtement.
@@ -989,8 +1022,9 @@ function resoudrePossession(
   const pression = (moyenneChamp(def, "interception") * 0.6 + moyenneChamp(def, "agressivite") * 0.4);
   const pPerte = borner(
     (PERTE_BASE +
-      (sysDef.interception * tempoAtt.exposition + inter.perte) +
-      (pression - maitrise) * 0.012 -
+      (sysDef.interception * engagement.interception * tempoAtt.exposition + inter.perte + accord.perte) +
+      (pression - maitrise) * 0.012 * engagement.pression -
+      (enIndividuelle ? MARQUAGE.interceptionPerdue : 0) -
       avantage * 0.022) *
       (apresTempsMort ? EFFET_TEMPS_MORT.perte : 1),
     0.03,
@@ -1033,7 +1067,7 @@ function resoudrePossession(
   /* 2. Contact irrégulier : jet de 7 m, exclusion, ou les deux. */
   const percussion = (moyenneChamp(att, "duel") * 0.6 + moyenneChamp(att, "vitesse") * 0.4);
   const pFaute = borner(
-    FAUTE_BASE * sysDef.faute * (1 + (percussion - moyenneChamp(def, "defense")) * 0.022),
+    FAUTE_BASE * sysDef.faute * engagement.faute * (1 + (percussion - moyenneChamp(def, "defense")) * 0.022),
     0.02,
     0.4,
   );
@@ -1048,7 +1082,7 @@ function resoudrePossession(
 
   /* 3. Le tir. */
   const place = choisirTireur(att, def, alea);
-  const type = typeTirPour(place.poste, def.tactique.systeme, alea);
+  const type = typeTirPour(place.poste, att, def.tactique.systeme, alea);
   return tirer(att, def, t, alea, journal, neutre, type, avantage, place, apresTempsMort);
 }
 
@@ -1060,15 +1094,31 @@ function affiniteTempo(cote: Cote): number {
   return (somme / cles.length - 12) * pente;
 }
 
+/** Le joueur adverse pris en individuelle est-il sur le terrain ? */
+function marqueSurLeTerrain(att: Cote, def: Cote): string | null {
+  const cible = def.tactique.marquage;
+  if (!cible) return null;
+  return att.champ.some((p) => p.id === cible) ? cible : null;
+}
+
 function choisirTireur(att: Cote, def: Cote, alea: Aleatoire): PlaceChamp {
   const parts = PART_TIRS[def.tactique.systeme];
+  const zone = ATTAQUES[att.tactique.attaque].parts;
+  const marque = marqueSurLeTerrain(att, def);
   // Le poste décide de la part des ballons bien plus que le talent : un
   // arrière tire parce qu'il est arrière. Sans ce socle, le meilleur tireur
   // accaparait un tiers des ballons et finissait la saison à dix buts par
   // match, deux fois le record réel d'un championnat.
   const poids = att.champ.map((p) => {
     const e = att.etats.get(p.id)!;
-    return Math.max(0.6, (24 + e.j.attributs.tir) * (parts[p.poste] ?? 1) * facteurEtat(e.condition, e.j.forme, e.j.moral));
+    return Math.max(
+      0.6,
+      (24 + e.j.attributs.tir) *
+        (parts[p.poste] ?? 1) *
+        (zone[p.poste] ?? 1) *
+        (p.id === marque ? MARQUAGE.partTirs : 1) *
+        facteurEtat(e.condition, e.j.forme, e.j.moral),
+    );
   });
   return alea.choixPondere(att.champ, poids);
 }
@@ -1089,6 +1139,13 @@ function tirer(
   const place = placeForcee ?? choisirTireur(att, def, alea);
   const e = att.etats.get(place.id)!;
   const inter = INTERACTION[att.tactique.tempo][def.tactique.systeme];
+  // La contre-attaque ne se joue pas contre un système défensif installé : la
+  // zone d'attaque et l'individuelle ne s'y appliquent pas.
+  const accord = type === "contre" ? { efficacite: 0, perte: 0 } : ACCORD_ATTAQUE[att.tactique.attaque][def.tactique.systeme];
+  const marque = type === "contre" ? null : marqueSurLeTerrain(att, def);
+  // Le joueur marqué tire moins bien ; les six autres respirent.
+  const individuelle =
+    marque === null ? 0 : place.id === marque ? -MARQUAGE.qualite * PENTE_QUALITE : MARQUAGE.efficaciteConcedee;
 
   const ecart = att.score - def.score;
   const relachement =
@@ -1100,6 +1157,8 @@ function tirer(
       TEMPOS[att.tactique.tempo].efficacite +
       affiniteTempo(att) +
       inter.efficacite +
+      accord.efficacite +
+      individuelle +
       avantage * EFFET_SUPERIORITE +
       relachement +
       (apresTempsMort ? EFFET_TEMPS_MORT.efficacite : 0) +

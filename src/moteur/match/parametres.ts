@@ -1,4 +1,12 @@
-import type { ConsigneRotation, PosteChamp, SystemeDefensif, Tempo, TypeTir } from "../types";
+import type {
+  AgressiviteDefensive,
+  ConsigneRotation,
+  FocusOffensif,
+  PosteChamp,
+  SystemeDefensif,
+  Tempo,
+  TypeTir,
+} from "../types";
 
 /**
  * Toutes les constantes calibrées du moteur, au même endroit.
@@ -184,6 +192,150 @@ export const PART_TIRS: Record<SystemeDefensif, Record<PosteChamp, number>> = {
   "6-0": { ArG: 1.8, ArD: 1.8, AiG: 1, AiD: 1, DC: 0.6, PV: 0.5 },
   "5-1": { ArG: 1.2, ArD: 1.2, AiG: 1.1, AiD: 1.1, DC: 0.5, PV: 1.05 },
   "3-2-1": { ArG: 0.6, ArD: 0.6, AiG: 1.25, AiD: 1.25, DC: 0.4, PV: 1.6 },
+};
+
+/* ------------------------------------------------------- zone d'attaque */
+
+export type ParamsAttaque = {
+  libelle: string;
+  description: string;
+  /** Multiplicateur de la part des tirs, poste par poste. */
+  parts: Record<PosteChamp, number>;
+  /** Multiplicateur des pénétrations : chercher le pivot, c'est entrer dedans. */
+  penetration: number;
+};
+
+/**
+ * La zone qu'on cherche en attaque. Ce n'est pas un bonus : c'est un choix de
+ * répartition. Donner tous les ballons au pivot n'a d'intérêt que si le pivot
+ * tient la comparaison, et que la défense d'en face laisse l'intérieur vivre.
+ */
+export const ATTAQUES: Record<FocusOffensif, ParamsAttaque> = {
+  equilibre: {
+    libelle: "Jeu équilibré",
+    description: "On prend ce que la défense donne. Aucun poste n'est privilégié, aucun n'est délaissé.",
+    parts: { ArG: 1, ArD: 1, AiG: 1, AiD: 1, DC: 1, PV: 1 },
+    penetration: 1,
+  },
+  pivot: {
+    libelle: "Jeu intérieur",
+    description: "Tout passe par le pivot et les pénétrations. Redoutable face à une défense haute, stérile contre un bloc bas.",
+    parts: { ArG: 0.72, ArD: 0.72, AiG: 0.8, AiD: 0.8, DC: 1.15, PV: 2.6 },
+    penetration: 1.35,
+  },
+  distance: {
+    libelle: "Tirs à distance",
+    description: "On arme de neuf mètres. Le bloc bas laisse tirer, la défense haute vous mange.",
+    parts: { ArG: 1.75, ArD: 1.75, AiG: 0.7, AiD: 0.7, DC: 1.1, PV: 0.5 },
+    penetration: 0.55,
+  },
+  ailes: {
+    libelle: "Débordement par les ailes",
+    description: "On écarte et on cherche les ailiers. Contre une défense resserrée au centre, c'est là que ça s'ouvre.",
+    parts: { ArG: 0.7, ArD: 0.7, AiG: 2.2, AiD: 2.2, DC: 0.85, PV: 0.75 },
+    penetration: 0.85,
+  },
+};
+
+/**
+ * Zone d'attaque × système défensif adverse. Le second étage du pierre-feuille-
+ * ciseaux du handball, après tempo × système : un bloc bas ferme l'intérieur et
+ * laisse armer, une défense haute fait l'inverse.
+ */
+export const ACCORD_ATTAQUE: Record<FocusOffensif, Record<SystemeDefensif, { efficacite: number; perte: number }>> = {
+  equilibre: {
+    "6-0": { efficacite: 0, perte: 0 },
+    "5-1": { efficacite: 0, perte: 0 },
+    "3-2-1": { efficacite: 0, perte: 0 },
+  },
+  pivot: {
+    "6-0": { efficacite: -0.02, perte: 0.012 },
+    "5-1": { efficacite: 0.006, perte: 0 },
+    "3-2-1": { efficacite: 0.026, perte: -0.008 },
+  },
+  distance: {
+    "6-0": { efficacite: 0.02, perte: -0.01 },
+    "5-1": { efficacite: 0.002, perte: 0 },
+    "3-2-1": { efficacite: -0.026, perte: 0.014 },
+  },
+  ailes: {
+    "6-0": { efficacite: -0.012, perte: 0.004 },
+    "5-1": { efficacite: 0.014, perte: -0.004 },
+    "3-2-1": { efficacite: 0.008, perte: 0 },
+  },
+};
+
+/* ------------------------------------------------------ engagement défensif */
+
+export type ParamsAgressivite = {
+  libelle: string;
+  description: string;
+  /** Multiplicateur des interceptions dues au système. */
+  interception: number;
+  /**
+   * Multiplicateur de la pression exercée sur le porteur. C'est lui qui rend
+   * le réglage contextuel : monter sur une équipe qui ne tient pas le ballon
+   * rapporte, monter sur un collectif propre ne rapporte rien.
+   */
+  pression: number;
+  /** Multiplicateur des contacts irréguliers. */
+  faute: number;
+  /** Points de défense ajoutés (un bloc prudent reste en place). */
+  defense: number;
+  usure: number;
+};
+
+/**
+ * Monter sur le porteur, c'est récupérer des ballons et partir en contre —
+ * mais c'est aussi deux minutes et un jet de sept mètres. Le réglage se
+ * choisit selon l'adversaire et selon le tableau d'affichage.
+ */
+export const AGRESSIVITES: Record<AgressiviteDefensive, ParamsAgressivite> = {
+  prudente: {
+    libelle: "Prudente",
+    description: "On reste en place, on ne monte pas. Peu de ballons récupérés, peu d'exclusions.",
+    interception: 0.6,
+    pression: 0.4,
+    faute: 0.74,
+    defense: 0.8,
+    usure: 0.95,
+  },
+  normale: {
+    libelle: "Normale",
+    description: "Le bloc défend son système, sans excès.",
+    interception: 1,
+    pression: 1,
+    faute: 1,
+    defense: 0,
+    usure: 1,
+  },
+  engagee: {
+    libelle: "Engagée",
+    description: "On monte sur les porteurs. Des ballons récupérés, des contre-attaques — et des deux minutes.",
+    interception: 1.7,
+    pression: 2.1,
+    faute: 1.42,
+    defense: -1,
+    usure: 1.07,
+  },
+};
+
+/* ------------------------------------------------------ marquage individuel */
+
+/**
+ * Coller un défenseur au meilleur tireur d'en face. Il touche beaucoup moins
+ * de ballons et tire moins bien, mais un homme parti en individuelle, c'est un
+ * homme de moins dans le bloc : les six autres attaquants en profitent.
+ */
+export const MARQUAGE = {
+  /** Multiplicateur de la part des tirs du joueur marqué. */
+  partTirs: 0.18,
+  /** Points de qualité de tir retirés au joueur marqué. */
+  qualite: 5,
+  /** Efficacité rendue au reste de l'attaque. */
+  efficaciteConcedee: 0.003,
+  /** Interceptions perdues par le bloc déséquilibré. */
+  interceptionPerdue: 0.006,
 };
 
 /** Probabilité qu'un arrière ou un demi-centre pénètre et finisse à six mètres. */

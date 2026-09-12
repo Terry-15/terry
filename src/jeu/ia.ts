@@ -1,7 +1,7 @@
 import { creerAleatoire, grainePour } from "../moteur/aleatoire";
 import type { IndexMonde } from "../moteur/monde";
 import { echangesProposes, meilleurSept } from "../moteur/monde";
-import type { Monde, SystemeDefensif, Tactique, Tempo } from "../moteur/types";
+import type { AgressiviteDefensive, FocusOffensif, Monde, SystemeDefensif, Tactique, Tempo } from "../moteur/types";
 import { observer } from "./observation";
 
 /**
@@ -31,11 +31,35 @@ export function tactiqueIA(
   const tempo: Tempo =
     systemeAdverse === "6-0" ? "place" : systemeAdverse === "3-2-1" ? "rapide" : "equilibre";
 
+  // La zone d'attaque suit le système annoncé d'en face : on arme de loin
+  // contre un bloc bas, on entre dedans contre une défense haute.
+  const attaque: FocusOffensif = alea.chance(0.75)
+    ? systemeAdverse === "6-0"
+      ? "distance"
+      : systemeAdverse === "3-2-1"
+        ? "pivot"
+        : "ailes"
+    : "equilibre";
+
+  // L'engagement défensif vient du tempérament de l'effectif : un bloc qui
+  // intercepte monte, un bloc qui bloque reste en place.
+  const champ = effectif.filter((j) => j.poste !== "GB");
+  const moyenne = (cle: "agressivite" | "interception" | "blocage") =>
+    champ.reduce((s, j) => s + j.attributs[cle], 0) / Math.max(1, champ.length);
+  const gout = (moyenne("agressivite") + moyenne("interception")) / 2 - moyenne("blocage");
+  const agressivite: AgressiviteDefensive = gout > 1 ? "engagee" : gout < -1 ? "prudente" : "normale";
+
+  // L'individuelle ne se sort que contre un tireur vraiment prépondérant.
+  const marquage = rapport.cibleMarquage && alea.chance(0.5) ? rapport.cibleMarquage.id : null;
+
   const sept = meilleurSept(effectif);
   return {
     ...club.tactique,
     systeme,
     tempo,
+    attaque,
+    agressivite,
+    marquage,
     rotation: "equilibre",
     gardienVolant: club.reputation > 40,
     sept,

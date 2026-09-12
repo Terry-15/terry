@@ -157,6 +157,10 @@ export type SystemeDefensif = "6-0" | "5-1" | "3-2-1";
 export type Tempo = "place" | "equilibre" | "rapide";
 /** Jusqu'où on fait tourner l'effectif pendant le match. */
 export type ConsigneRotation = "titulaires" | "equilibre" | "large";
+/** Zone de tir privilégiée en attaque. */
+export type FocusOffensif = "equilibre" | "pivot" | "distance" | "ailes";
+/** Engagement du bloc : ce qu'on accepte de concéder pour récupérer des ballons. */
+export type AgressiviteDefensive = "prudente" | "normale" | "engagee";
 
 /**
  * Un échange attaque / défense : le premier joue les phases offensives, le
@@ -169,6 +173,12 @@ export type Tactique = {
   systeme: SystemeDefensif;
   tempo: Tempo;
   rotation: ConsigneRotation;
+  /** Zone à privilégier en attaque. */
+  attaque: FocusOffensif;
+  /** Degré d'engagement du bloc défensif. */
+  agressivite: AgressiviteDefensive;
+  /** Joueur adverse pris en individuelle, ou null. */
+  marquage: string | null;
   /** Sortir le gardien en attaque quand on est mené dans les deux dernières minutes. */
   gardienVolant: boolean;
   /** Titulaire retenu pour chacun des sept postes. */

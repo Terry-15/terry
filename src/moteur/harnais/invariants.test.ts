@@ -24,20 +24,35 @@ import { DUREE_MATCH } from "../match/parametres";
 import { creerMonde, disponibles, echangesProposes, forceClub, indexer } from "../monde";
 import { palmares, passerALaSaisonSuivante } from "../evolution";
 import { classement, creerSaison, jouerJournee } from "../saison";
-import { ATTRIBUTS, POSTES, type FeuilleMatch, type SystemeDefensif, type Tempo } from "../types";
+import { observer, SEUIL_MARQUAGE } from "../../jeu/observation";
+import {
+  ATTRIBUTS,
+  POSTES,
+  type AgressiviteDefensive,
+  type FeuilleMatch,
+  type FocusOffensif,
+  type SystemeDefensif,
+  type Tactique,
+  type Tempo,
+} from "../types";
 
 const monde = creerMonde(20260911);
 const idx = indexer(monde);
 const d1 = monde.divisions[0].clubIds;
 const MON_CLUB = "d1-05"; // HBC Rocheval
 
-function entree(clubId: string, systeme?: SystemeDefensif, tempo?: Tempo): EntreeEquipe {
+function entree(clubId: string, systeme?: SystemeDefensif, tempo?: Tempo, modif: Partial<Tactique> = {}): EntreeEquipe {
   const club = idx.clubParId.get(clubId)!;
   const effectif = disponibles(idx.effectifParClub.get(clubId)!);
   return {
     club,
     effectif,
-    tactique: { ...club.tactique, systeme: systeme ?? club.tactique.systeme, tempo: tempo ?? club.tactique.tempo },
+    tactique: {
+      ...club.tactique,
+      systeme: systeme ?? club.tactique.systeme,
+      tempo: tempo ?? club.tactique.tempo,
+      ...modif,
+    },
   };
 }
 
@@ -246,6 +261,124 @@ describe("4. Pas de stratégie dominante", () => {
     // posé à 0,9 pour interdire toute régression, et l'objectif d'un but
     // reviendra avec les spécialistes attaque/défense.
     expect(amplitude).toBeGreaterThan(0.9);
+  });
+
+  it("la zone d'attaque se choisit contre le système adverse, dans les deux sens", () => {
+    // Le second étage du pierre-feuille-ciseaux : armer de loin contre un bloc
+    // bas, entrer dedans contre une défense haute. Mesures appariées — mêmes
+    // graines pour les deux zones, ce qui divise le bruit.
+    const mesurer = (zone: FocusOffensif, systemeAdverse: SystemeDefensif) => {
+      let buts = 0;
+      for (let i = 0; i < 250; i++) {
+        buts += simulerMatch(entree(MON_CLUB, "5-1", "equilibre", { attaque: zone }), entree(d1[2], systemeAdverse), {
+          graine: 840000 + i,
+          neutre: true,
+        }).scoreDomicile;
+      }
+      return buts / 250;
+    };
+    const contreBas = { distance: mesurer("distance", "6-0"), pivot: mesurer("pivot", "6-0") };
+    const contreHaut = { distance: mesurer("distance", "3-2-1"), pivot: mesurer("pivot", "3-2-1") };
+    console.log(
+      `    contre 6-0 : distance ${contreBas.distance.toFixed(2)} / pivot ${contreBas.pivot.toFixed(2)} · ` +
+        `contre 3-2-1 : distance ${contreHaut.distance.toFixed(2)} / pivot ${contreHaut.pivot.toFixed(2)}`,
+    );
+    expect(contreBas.distance).toBeGreaterThan(contreBas.pivot + 1);
+    expect(contreHaut.pivot).toBeGreaterThan(contreHaut.distance + 1);
+  });
+
+  it("l'engagement défensif dépend de l'adversaire, et ses coûts sont monotones", () => {
+    const ENG: AgressiviteDefensive[] = ["prudente", "normale", "engagee"];
+    const maitrise = (clubId: string) => {
+      const champ = (idx.effectifParClub.get(clubId) ?? []).filter((j) => j.poste !== "GB");
+      return champ.reduce((s, j) => s + (j.attributs.passe + j.attributs.vision) / 2, 0) / Math.max(1, champ.length);
+    };
+    const tries = d1.filter((id) => id !== MON_CLUB).sort((a, b) => maitrise(a) - maitrise(b));
+    const fragile = tries[0];
+    const propre = tries[tries.length - 1];
+
+    const mesurer = (agressivite: AgressiviteDefensive, adversaire: string) => {
+      let ecart = 0;
+      let exclusions = 0;
+      let recuperes = 0;
+      for (let i = 0; i < 400; i++) {
+        const f = simulerMatch(entree(MON_CLUB, "5-1", "equilibre", { agressivite }), entree(adversaire), {
+          graine: 850000 + i,
+          neutre: true,
+        });
+        ecart += f.scoreDomicile - f.scoreExterieur;
+        exclusions += f.statsDomicile.exclusions;
+        recuperes += f.statsDomicile.pertesProvoquees;
+      }
+      return { ecart: ecart / 400, exclusions: exclusions / 400, recuperes: recuperes / 400 };
+    };
+
+    const surFragile = ENG.map((a) => mesurer(a, fragile));
+    const surPropre = ENG.map((a) => mesurer(a, propre));
+    console.log(
+      `    ballon fragile : ${surFragile.map((m, k) => `${ENG[k]} ${m.ecart.toFixed(2)}`).join(" · ")}\n` +
+        `    collectif propre : ${surPropre.map((m, k) => `${ENG[k]} ${m.ecart.toFixed(2)}`).join(" · ")}`,
+    );
+
+    // Monter sur une équipe qui ne tient pas le ballon paie ; monter sur un
+    // collectif propre coûte. Sans cette inversion, le réglage serait un curseur
+    // à pousser une fois pour toutes.
+    expect(surFragile[2].ecart).toBeGreaterThan(surFragile[0].ecart);
+    expect(surPropre[0].ecart).toBeGreaterThan(surPropre[2].ecart);
+    // Et le prix est toujours là : plus on monte, plus on est exclu, et plus on
+    // récupère de ballons. Ces deux courbes sont structurelles, pas du bruit.
+    for (const lot of [surFragile, surPropre]) {
+      expect(lot[0].exclusions).toBeLessThan(lot[1].exclusions);
+      expect(lot[1].exclusions).toBeLessThan(lot[2].exclusions);
+      expect(lot[0].recuperes).toBeLessThan(lot[2].recuperes);
+    }
+  });
+
+  it("le marquage individuel se joue sur l'homme, et se trompe cher", () => {
+    // L'individuelle n'est pas un bonus à cocher : c'est un pari sur un homme.
+    // Bien visée, elle fait baisser le score adverse ; mal visée, elle le fait
+    // monter, parce qu'un défenseur sorti du bloc ne revient pas.
+    const cibles = d1
+      .filter((id) => id !== MON_CLUB)
+      .map((id) => ({ id, rapport: observer(monde, idx, id) }))
+      .sort((a, b) => b.rapport.gainMarquage - a.rapport.gainMarquage);
+    const { id: adversaire, rapport } = cibles[0];
+    expect(rapport.gainMarquage).toBeGreaterThanOrEqual(SEUIL_MARQUAGE);
+    const cible = rapport.cibleMarquage!;
+    const sept = idx.clubParId.get(adversaire)!.tactique.sept;
+    const comparse = Object.entries(sept)
+      .filter(([poste]) => poste !== "GB")
+      .map(([, jid]) => idx.joueurParId.get(jid)!)
+      .filter((j) => j && j.id !== cible.id)
+      .sort((a, b) => a.attributs.tir - b.attributs.tir)[0];
+
+    const mesurer = (marquage: string | null) => {
+      let encaisses = 0;
+      let butsCible = 0;
+      for (let i = 0; i < 500; i++) {
+        const f = simulerMatch(entree(adversaire), entree(MON_CLUB, "5-1", "equilibre", { marquage }), {
+          graine: 860000 + i,
+          neutre: true,
+        });
+        encaisses += f.scoreDomicile;
+        butsCible += f.joueursDomicile.find((l) => l.joueurId === cible.id)?.buts ?? 0;
+      }
+      return { encaisses: encaisses / 500, butsCible: butsCible / 500 };
+    };
+
+    const aucun = mesurer(null);
+    const surCible = mesurer(cible.id);
+    const surComparse = mesurer(comparse.id);
+    console.log(
+      `    ${rapport.nom} : sans marquage ${aucun.encaisses.toFixed(2)} · sur ${cible.nom} ` +
+        `${surCible.encaisses.toFixed(2)} · sur ${comparse.nom} ${surComparse.encaisses.toFixed(2)} ` +
+        `(buts de ${cible.nom} : ${aucun.butsCible.toFixed(2)} → ${surCible.butsCible.toFixed(2)})`,
+    );
+
+    // L'homme marqué est bel et bien sorti du match.
+    expect(surCible.butsCible).toBeLessThan(aucun.butsCible * 0.65);
+    // Et viser le bon homme vaut mieux que viser un comparse.
+    expect(surCible.encaisses).toBeLessThan(surComparse.encaisses - 0.1);
   });
 });
 
